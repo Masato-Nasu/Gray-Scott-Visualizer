@@ -48,3 +48,59 @@ https://masato-nasu.github.io/Gray-Scott-Visualizer/
 
 ## ライセンス
 MIT License
+
+---
+
+# English
+
+## Gray-Scott Visualizer (Minimal Fade-In)
+
+A **real-time Gray-Scott reaction-diffusion visualizer** that responds to music.  
+It runs entirely in the browser and can be easily hosted with GitHub Pages.
+
+---
+
+## Features
+- 🎶 **Music Input** — Load local audio files and react to features like RMS and spectral centroid  
+- 🌊 **Real-Time Generation** — Dynamic Gray-Scott reaction-diffusion patterns  
+- 🖼️ **Interactive** — Click the canvas to trigger flash effects on feed/kill values  
+- 📱 **Browser-Only** — No installation required, works on both desktop and mobile  
+
+---
+
+## Screenshot
+
+![Gray-Scott Visualizer Screenshot](./screenshot.png)
+
+---
+
+## Demo Page
+
+https://masato-nasu.github.io/Gray-Scott-Visualizer/
+
+---
+
+## Usage
+1. Load your music files using **SELECT MUSIC FOLDER**  
+2. Press **PLAY** to start playback  
+3. Control with **PAUSE / NEXT / PREVIOUS**  
+4. Click on the canvas to apply temporary flash effects  
+
+---
+
+## Tech Stack
+- HTML / CSS / JavaScript  
+- [Meyda](https://meyda.js.org/) (Audio feature extraction library)  
+
+---
+
+## Deployment
+1. Upload `index.html` and `screenshot.png` to this repository  
+2. Go to **Settings → Pages**, set the source to `main` branch / root  
+3. Your app will be live at:  
+   `https://username.github.io/repository/`  
+
+---
+
+## License
+MIT License
