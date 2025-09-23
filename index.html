@@ -2,8 +2,15 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
   <title>Gray-Scott Visualizer (Minimal Fade-In)</title>
+
+  <!-- PWA 対応 -->
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <meta name="theme-color" content="#000000">
+
   <style>
     body {
       margin: 0;
@@ -253,7 +260,6 @@
         await audioContext.resume();
         source.start(0);
 
-        // ←ここでcanvasを表示
         if (!canvasActivated) {
           canvas.classList.add('active');
           canvasActivated = true;
@@ -298,6 +304,15 @@
       await audioContext.resume();
       await playTrack((currentTrack - 1 + playlist.length) % playlist.length);
     });
+  </script>
+
+  <!-- Service Worker 登録 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js?ver=1').catch(console.error);
+      });
+    }
   </script>
 </body>
 </html>
