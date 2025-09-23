@@ -20,9 +20,8 @@
 ---
 
 ## デモページ
-公開後は以下の URL からアクセス可能です:
 
-https://ユーザー名.github.io/リポジトリ名/
+https://masato-nasu.github.io/Gray-Scott-Visualizer/
 
 yaml
 コードをコピーする
