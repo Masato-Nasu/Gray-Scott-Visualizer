@@ -23,7 +23,6 @@
       align-items: center;
       padding: 16px;
     }
-
     canvas {
       background: #000;
       width: 100%;
@@ -34,12 +33,7 @@
       transition: opacity 1s ease;
       pointer-events: none;
     }
-
-    canvas.active {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
+    canvas.active { opacity: 1; pointer-events: auto; }
     #controls {
       display: flex;
       flex-direction: column;
@@ -49,7 +43,6 @@
       margin-top: 16px;
       gap: 8px;
     }
-
     #lcd, button, label {
       height: 48px;
       background: #fff;
@@ -67,20 +60,9 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-
-    #lcd span {
-      display: inline-block;
-      animation: scroll 10s linear infinite;
-    }
-
-    @keyframes scroll {
-      from { transform: translateX(100%); }
-      to   { transform: translateX(-100%); }
-    }
-
-    input[type="file"] {
-      display: none;
-    }
+    #lcd span { display: inline-block; animation: scroll 10s linear infinite; }
+    @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+    input[type="file"] { display: none; }
   </style>
 </head>
 <body>
@@ -88,6 +70,7 @@
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
     <label for="audioInput">SELECT MUSIC FOLDER</label>
+    <button id="bindDirButton">BIND MUSIC FOLDER (PERSISTENT)</button>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
@@ -97,6 +80,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
+    /* ====== Gray-Scott 可視化 ====== */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const size = 500;
@@ -127,8 +111,7 @@
 
     function lap(f, x, y) {
       return f[((y - 1 + size) % size) * size + x] + f[((y + 1) % size) * size + x] +
-             f[y * size + ((x - 1 + size) % size)] + f[y * size + ((x + 1) % size)] -
-             4 * f[y * size + x];
+             f[y * size + ((x - 1 + size) % size)] + f[y * size + ((x + 1) % size)] - 4 * f[y * size + x];
     }
 
     function step() {
@@ -172,24 +155,18 @@
     }
     loop();
 
-    canvas.addEventListener('click', () => {
-      flashFeed = 0.08;
-      flashKill = -0.04;
-    });
+    canvas.addEventListener('click', () => { flashFeed = 0.08; flashKill = -0.04; });
 
     let audioContext, source, meyda;
     let playlist = [], currentTrack = 0;
     const lcdSpan = document.querySelector('#lcd span');
 
+    /* ====== Audio 再生制御 ====== */
     function initAudio() {
       if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
     }
-
-    document.body.addEventListener('touchend', () => {
-      if (audioContext?.state === 'suspended') audioContext.resume();
-    }, { once: true });
 
     async function stopCurrentTrack() {
       if (source) {
@@ -219,10 +196,7 @@
         initAudio();
         const file = playlist[index];
         const buffer = await loadAudioBuffer(file);
-        if (!buffer) {
-          lcdSpan.textContent = `Decode failed: ${file.name}`;
-          return;
-        }
+        if (!buffer) { lcdSpan.textContent = `Decode failed: ${file.name}`; return; }
 
         source = audioContext.createBufferSource();
         source.buffer = buffer;
@@ -255,56 +229,130 @@
         };
 
         lcdSpan.textContent = `TRACK ${index + 1}: ${file.name}`;
-        playing = true;
-        paused = false;
-        currentTrack = index;
+        playing = true; paused = false; currentTrack = index;
         await audioContext.resume();
         source.start(0);
+        afterTrackStartUpdateUI(file.name);
 
-        if (!canvasActivated) {
-          canvas.classList.add('active');
-          canvasActivated = true;
-        }
-
+        if (!canvasActivated) { canvas.classList.add('active'); canvasActivated = true; }
       } catch (e) {
-        lcdSpan.textContent = `Error: ${e.message}`;
-        console.error(e);
-      } finally {
-        isSwitching = false;
-      }
+        lcdSpan.textContent = `Error: ${e.message}`; console.error(e);
+      } finally { isSwitching = false; }
     }
 
+    /* ====== UIイベント ====== */
     document.getElementById('audioInput').addEventListener('change', e => {
-      playlist = Array.from(e.target.files).filter(f => f.type.startsWith('audio/')).sort((a, b) => a.name.localeCompare(b.name));
+      playlist = Array.from(e.target.files).filter(f => f.type.startsWith('audio/'))
+                 .sort((a, b) => a.name.localeCompare(b.name));
       currentTrack = 0;
       lcdSpan.textContent = playlist.length ? 'LOADED' : 'NO FILES LOADED';
     });
-
     document.getElementById('playButton').addEventListener('click', () => {
       if (audioContext?.state === 'suspended') audioContext.resume();
       else if (playlist.length) playTrack(currentTrack);
     });
-
     document.getElementById('pauseButton').addEventListener('click', () => {
-      if (audioContext?.state === 'running') {
-        audioContext.suspend();
-        paused = true;
-      }
+      if (audioContext?.state === 'running') { audioContext.suspend(); paused = true; }
     });
-
     document.getElementById('skipButton').addEventListener('click', async () => {
       if (isSwitching || !playlist.length) return;
-      await stopCurrentTrack();
-      await audioContext.resume();
+      await stopCurrentTrack(); await audioContext.resume();
       await playTrack((currentTrack + 1) % playlist.length);
     });
-
     document.getElementById('backButton').addEventListener('click', async () => {
       if (isSwitching || !playlist.length) return;
-      await stopCurrentTrack();
-      await audioContext.resume();
+      await stopCurrentTrack(); await audioContext.resume();
       await playTrack((currentTrack - 1 + playlist.length) % playlist.length);
     });
+
+    /* ====== MediaSession / バックグラウンド対策 ====== */
+    function updateMediaSessionMeta(name = 'Gray-Scott Visualizer') {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: name, artist: 'Local Audio', album: 'GSV' });
+        navigator.mediaSession.setActionHandler('play', () => { audioContext?.resume(); paused = false; });
+        navigator.mediaSession.setActionHandler('pause', () => { audioContext?.suspend(); paused = true; });
+        navigator.mediaSession.setActionHandler('previoustrack', () => { document.getElementById('backButton').click(); });
+        navigator.mediaSession.setActionHandler('nexttrack', () => { document.getElementById('skipButton').click(); });
+      }
+    }
+    function afterTrackStartUpdateUI(fileName) { updateMediaSessionMeta(fileName); }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (audioContext?.state === 'suspended' && playing && !paused) audioContext.resume().catch(()=>{});
+      }
+    });
+    window.addEventListener('pageshow', () => {
+      if (audioContext?.state === 'suspended' && playing && !paused) audioContext.resume().catch(()=>{});
+    });
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+
+    /* ====== File System Access API 永続フォルダ ====== */
+    function idbSet(key, value) {
+      return new Promise((resolve, reject) => {
+        const open = indexedDB.open('gsv-db', 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('s');
+        open.onsuccess = () => {
+          const tx = open.result.transaction('s', 'readwrite');
+          tx.objectStore('s').put(value, key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = reject;
+        };
+        open.onerror = reject;
+      });
+    }
+    function idbGet(key) {
+      return new Promise((resolve, reject) => {
+        const open = indexedDB.open('gsv-db', 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('s');
+        open.onsuccess = () => {
+          const tx = open.result.transaction('s', 'readonly');
+          const req = tx.objectStore('s').get(key);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = reject;
+        };
+        open.onerror = reject;
+      });
+    }
+    let dirHandle;
+    async function bindMusicDirectory() {
+      if (!('showDirectoryPicker' in window)) { document.getElementById('audioInput').click(); return; }
+      try {
+        dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+        const perm = await dirHandle.requestPermission({ mode: 'read' });
+        if (perm !== 'granted') return;
+        await idbSet('musicDir', dirHandle);
+        await loadFromDirectoryHandle(dirHandle);
+      } catch (e) { console.warn('bindMusicDirectory:', e); }
+    }
+    async function restoreMusicDirectory() {
+      try {
+        const h = await idbGet('musicDir'); if (!h) return false;
+        const status = await h.queryPermission({ mode: 'read' });
+        if (status !== 'granted') {
+          const p = await h.requestPermission({ mode: 'read' });
+          if (p !== 'granted') return false;
+        }
+        dirHandle = h; await loadFromDirectoryHandle(h); return true;
+      } catch (e) { console.warn('restoreMusicDirectory:', e); return false; }
+    }
+    async function* iterateFilesRecursively(handle) {
+      for await (const [name, entry] of handle.entries()) {
+        if (entry.kind === 'file') yield await entry.getFile();
+        else if (entry.kind === 'directory') yield* iterateFilesRecursively(entry);
+      }
+    }
+    async function loadFromDirectoryHandle(handle) {
+      playlist = [];
+      for await (const file of iterateFilesRecursively(handle)) {
+        if (file.type && file.type.startsWith('audio/')) playlist.push(file);
+        else if (!file.type && /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(file.name)) playlist.push(file);
+      }
+      playlist.sort((a, b) => a.name.localeCompare(b.name));
+      currentTrack = 0;
+      lcdSpan.textContent = playlist.length ? 'LOADED (persistent folder)' : 'NO FILES';
+    }
+    document.getElementById('bindDirButton')?.addEventListener('click', bindMusicDirectory);
+    restoreMusicDirectory();
   </script>
 
   <!-- Service Worker 登録 -->
