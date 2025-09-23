@@ -34,6 +34,7 @@
   <canvas id="canvas"></canvas>
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
+    <!-- for属性は付けずにJSで制御 -->
     <label id="folderButton">SELECT MUSIC FOLDER</label>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
@@ -216,6 +217,7 @@
         afterTrackStartUpdateUI(file.name);
 
         if (!canvasActivated) { canvas.classList.add('active'); canvasActivated = true; }
+        // NOTE: 再生開始でフルスクリーン
         enterFullscreen();
 
       } catch (e) {
@@ -224,7 +226,6 @@
     }
 
     document.getElementById('playButton').addEventListener('click', () => {
-      enterFullscreen();
       if (audioContext?.state === 'suspended') audioContext.resume();
       else if (playlist.length) playTrack(currentTrack);
     });
@@ -278,7 +279,7 @@
 
     let dirHandle;
     async function pickFolder() {
-      enterFullscreen();
+      // NOTE: ここでフルスクリーンは発動しない（ダイアログ阻害を避ける）
       if ('showDirectoryPicker' in window) {
         try {
           dirHandle = await window.showDirectoryPicker({ mode: 'read' });
@@ -286,9 +287,14 @@
           if (perm !== 'granted') return;
           await idbSet('musicDir', dirHandle);
           await loadFromDirectoryHandle(dirHandle);
+          // 選択後にフルスクリーンへ
+          enterFullscreen();
         } catch (e) {
           console.warn('showDirectoryPicker failed:', e);
-          audioInput.click();
+          // キャンセル時は何もしない。非対応時のみフォールバック。
+          if (!(e && e.name === 'AbortError')) {
+            audioInput.click();
+          }
         }
       } else {
         audioInput.click();
@@ -332,8 +338,9 @@
     });
 
     audioInput.addEventListener('change', e => {
-      playlist = Array.from(e.target.files).filter(f => f.type and f.type.startswith('audio/'))
-                 .sort((a, b) => a.name.localeCompare(b.name));
+      const files = Array.from(e.target.files);
+      playlist = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name))
+                      .sort((a, b) => a.name.localeCompare(b.name));
       currentTrack = 0;
       lcdSpan.textContent = playlist.length ? 'LOADED' : 'NO FILES';
       enterFullscreen();
@@ -408,7 +415,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=9').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=10').catch(console.error);
       });
     }
   </script>
