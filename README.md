@@ -23,9 +23,6 @@
 
 https://masato-nasu.github.io/Gray-Scott-Visualizer/
 
-yaml
-コードをコピーする
-
 ---
 
 ## 使い方
