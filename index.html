@@ -5,82 +5,62 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
   <title>Gray-Scott Visualizer (Minimal Fade-In)</title>
 
-  <!-- PWA 対応 -->
+  <!-- PWA -->
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
 
   <style>
-    body {
-      margin: 0;
-      background: #fff;
-      color: #000;
-      font-family: system-ui, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 16px;
-    }
-    canvas {
-      background: #000;
-      width: 100%;
-      max-width: 500px;
-      aspect-ratio: 1 / 1;
-      border-radius: 4px;
-      opacity: 0;
-      transition: opacity 1s ease;
-      pointer-events: none;
-    }
+    :root { --maxw: 500px; }
+    body { margin: 0; background: #fff; color: #000; font-family: system-ui, sans-serif;
+           display: flex; flex-direction: column; align-items: center; padding: 16px; gap: 12px; }
+    canvas { background: #000; width: 100%; max-width: var(--maxw); aspect-ratio: 1 / 1;
+             border-radius: 6px; opacity: 0; transition: opacity 1s ease; pointer-events: none; }
     canvas.active { opacity: 1; pointer-events: auto; }
-    #controls {
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      width: 100%;
-      max-width: 500px;
-      margin-top: 16px;
-      gap: 8px;
-    }
-    #lcd, button, label {
-      height: 48px;
-      background: #fff;
-      border: 1px solid #000;
-      color: #000;
-      font-size: 16px;
-      font-family: monospace;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      white-space: nowrap;
-      cursor: pointer;
-      padding: 0 12px;
-      border-radius: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    #lcd span { display: inline-block; animation: scroll 10s linear infinite; }
-    @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+    #controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: var(--maxw); }
+    #controls > * { height: 44px; background: #fff; border: 1px solid #000; color: #000; font-size: 14px;
+                    font-family: monospace; display: flex; align-items: center; justify-content: center;
+                    white-space: nowrap; cursor: pointer; border-radius: 4px; }
+    #lcd { grid-column: 1 / -1; overflow: hidden; }
+    #lcd span { display: inline-block; animation: scroll 10s linear infinite; padding: 0 100%; }
+    @keyframes scroll { from { transform: translateX(0%); } to { transform: translateX(-100%); } }
+    label[for="audioInput"] { user-select: none; }
     input[type="file"] { display: none; }
+    #resumeBar { position: fixed; left: 12px; right: 12px; bottom: 12px; background: #111; color: #fff;
+                 border-radius: 8px; padding: 10px; display: none; align-items: center; justify-content: space-between; gap: 8px; }
+    #resumeBar button { background: #fff; color: #000; border: 0; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+    #wakeToggle.on { outline: 2px dashed #000; }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
+
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
     <label for="audioInput">SELECT MUSIC FOLDER</label>
-    <button id="bindDirButton">BIND MUSIC FOLDER (PERSISTENT)</button>
+    <button id="bindDirButton">BIND FOLDER (PERSISTENT)</button>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
     <button id="backButton">PREVIOUS</button>
+    <button id="wakeToggle" title="Keep screen on to avoid OS sleep">KEEP SCREEN ON</button>
     <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
+  </div>
+
+  <div id="resumeBar">
+    <div>Playback was interrupted. Resume?</div>
+    <div>
+      <button id="resumeYes">RESUME</button>
+      <button id="resumeNo">DISMISS</button>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
-    /* ====== Gray-Scott 可視化 ====== */
+    /* ===== Gray-Scott ===== */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const size = 500;
@@ -161,11 +141,8 @@
     let playlist = [], currentTrack = 0;
     const lcdSpan = document.querySelector('#lcd span');
 
-    /* ====== Audio 再生制御 ====== */
     function initAudio() {
-      if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      }
+      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
 
     async function stopCurrentTrack() {
@@ -233,26 +210,27 @@
         await audioContext.resume();
         source.start(0);
         afterTrackStartUpdateUI(file.name);
-
         if (!canvasActivated) { canvas.classList.add('active'); canvasActivated = true; }
+        saveState();
       } catch (e) {
         lcdSpan.textContent = `Error: ${e.message}`; console.error(e);
       } finally { isSwitching = false; }
     }
 
-    /* ====== UIイベント ====== */
+    /* ===== UI ===== */
     document.getElementById('audioInput').addEventListener('change', e => {
-      playlist = Array.from(e.target.files).filter(f => f.type.startsWith('audio/'))
+      playlist = Array.from(e.target.files).filter(f => (f.type?.startsWith('audio/') || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name)))
                  .sort((a, b) => a.name.localeCompare(b.name));
       currentTrack = 0;
       lcdSpan.textContent = playlist.length ? 'LOADED' : 'NO FILES LOADED';
+      saveState();
     });
     document.getElementById('playButton').addEventListener('click', () => {
       if (audioContext?.state === 'suspended') audioContext.resume();
       else if (playlist.length) playTrack(currentTrack);
     });
     document.getElementById('pauseButton').addEventListener('click', () => {
-      if (audioContext?.state === 'running') { audioContext.suspend(); paused = true; }
+      if (audioContext?.state === 'running') { audioContext.suspend(); paused = true; saveState(); }
     });
     document.getElementById('skipButton').addEventListener('click', async () => {
       if (isSwitching || !playlist.length) return;
@@ -265,17 +243,20 @@
       await playTrack((currentTrack - 1 + playlist.length) % playlist.length);
     });
 
-    /* ====== MediaSession / バックグラウンド対策 ====== */
+    /* ===== MediaSession & background ===== */
     function updateMediaSessionMeta(name = 'Gray-Scott Visualizer') {
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({ title: name, artist: 'Local Audio', album: 'GSV' });
-        navigator.mediaSession.setActionHandler('play', () => { audioContext?.resume(); paused = false; });
-        navigator.mediaSession.setActionHandler('pause', () => { audioContext?.suspend(); paused = true; });
+        navigator.mediaSession.playbackState = (playing && !paused) ? 'playing' : 'paused';
+        navigator.mediaSession.setActionHandler('play', () => { audioContext?.resume(); paused = false; saveState(); });
+        navigator.mediaSession.setActionHandler('pause', () => { audioContext?.suspend(); paused = true; saveState(); });
         navigator.mediaSession.setActionHandler('previoustrack', () => { document.getElementById('backButton').click(); });
         navigator.mediaSession.setActionHandler('nexttrack', () => { document.getElementById('skipButton').click(); });
       }
     }
     function afterTrackStartUpdateUI(fileName) { updateMediaSessionMeta(fileName); }
+
+    // Resume on visibility/pageshow
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         if (audioContext?.state === 'suspended' && playing && !paused) audioContext.resume().catch(()=>{});
@@ -284,9 +265,33 @@
     window.addEventListener('pageshow', () => {
       if (audioContext?.state === 'suspended' && playing && !paused) audioContext.resume().catch(()=>{});
     });
-    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
 
-    /* ====== File System Access API 永続フォルダ ====== */
+    // Watchdog: try resume every 30s if should be playing
+    setInterval(() => {
+      if (playing && !paused && audioContext && audioContext.state !== 'running') {
+        audioContext.resume().catch(()=>{});
+      }
+    }, 30000);
+
+    // Persistent Storage request
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(()=>{});
+    }
+
+    /* ===== Wake Lock (screen) ===== */
+    let wakeLock = null;
+    async function toggleWakeLock() {
+      const btn = document.getElementById('wakeToggle');
+      try {
+        if (!('wakeLock' in navigator)) { btn.textContent = 'NO WAKE LOCK'; return; }
+        if (wakeLock) { await wakeLock.release(); wakeLock = null; btn.classList.remove('on'); btn.textContent = 'KEEP SCREEN ON'; }
+        else { wakeLock = await navigator.wakeLock.request('screen'); btn.classList.add('on'); btn.textContent = 'SCREEN KEPT ON'; }
+      } catch (e) { console.warn('wakeLock:', e); }
+    }
+    document.getElementById('wakeToggle').addEventListener('click', toggleWakeLock);
+    document.addEventListener('visibilitychange', async () => { if (wakeLock && document.visibilityState === 'visible') { try { wakeLock = await navigator.wakeLock.request('screen'); } catch {} } });
+
+    /* ===== File System Access persistent folder ===== */
     function idbSet(key, value) {
       return new Promise((resolve, reject) => {
         const open = indexedDB.open('gsv-db', 1);
@@ -313,6 +318,7 @@
         open.onerror = reject;
       });
     }
+
     let dirHandle;
     async function bindMusicDirectory() {
       if (!('showDirectoryPicker' in window)) { document.getElementById('audioInput').click(); return; }
@@ -322,6 +328,7 @@
         if (perm !== 'granted') return;
         await idbSet('musicDir', dirHandle);
         await loadFromDirectoryHandle(dirHandle);
+        saveState();
       } catch (e) { console.warn('bindMusicDirectory:', e); }
     }
     async function restoreMusicDirectory() {
@@ -348,18 +355,47 @@
         else if (!file.type && /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(file.name)) playlist.push(file);
       }
       playlist.sort((a, b) => a.name.localeCompare(b.name));
-      currentTrack = 0;
+      currentTrack = Math.min(currentTrack, Math.max(0, playlist.length - 1));
       lcdSpan.textContent = playlist.length ? 'LOADED (persistent folder)' : 'NO FILES';
     }
     document.getElementById('bindDirButton')?.addEventListener('click', bindMusicDirectory);
-    restoreMusicDirectory();
+
+    /* ===== state persist ===== */
+    function saveState() {
+      const state = { currentTrack, playing, paused };
+      try { localStorage.setItem('gsv_state', JSON.stringify(state)); } catch {}
+    }
+    function readState() {
+      try {
+        const s = localStorage.getItem('gsv_state');
+        if (s) return JSON.parse(s);
+      } catch {}
+      return null;
+    }
+
+    const resumeBar = document.getElementById('resumeBar');
+    document.getElementById('resumeYes').addEventListener('click', async () => {
+      resumeBar.style.display = 'none';
+      initAudio();
+      await audioContext.resume();
+      if (playlist.length) playTrack(currentTrack);
+    });
+    document.getElementById('resumeNo').addEventListener('click', () => resumeBar.style.display = 'none');
+
+    // On load: try restore folder and state; if was playing, show resume bar
+    (async () => {
+      const restored = await restoreMusicDirectory();
+      const st = readState();
+      if (st) { currentTrack = st.currentTrack || 0; paused = st.paused || false; playing = st.playing || false; }
+      if (playing && !paused) resumeBar.style.display = 'flex';
+    })();
   </script>
 
-  <!-- Service Worker 登録 -->
+  <!-- Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=3').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=4').catch(console.error);
       });
     }
   </script>
