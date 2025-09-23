@@ -13,17 +13,18 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
 
   <style>
-    body { margin: 0; background: #fff; color: #000; font-family: system-ui, sans-serif;
+    html, body { height: 100%; }
+    body { margin: 0; background: #000; color: #fff; font-family: system-ui, sans-serif;
            display: flex; flex-direction: column; align-items: center; padding: 16px; }
     canvas { background: #000; width: 100%; max-width: 500px; aspect-ratio: 1 / 1;
              border-radius: 4px; opacity: 0; transition: opacity 1s ease; pointer-events: none; }
     canvas.active { opacity: 1; pointer-events: auto; }
     #controls { display: flex; flex-direction: column; align-items: stretch; width: 100%;
                 max-width: 500px; margin-top: 16px; gap: 8px; }
-    #lcd, button, label { height: 48px; background: #fff; border: 1px solid #000; color: #000;
+    #lcd, button, label { height: 48px; background: #111; border: 1px solid #444; color: #fff;
                           font-size: 16px; font-family: monospace; display: flex; align-items: center;
                           justify-content: center; white-space: nowrap; cursor: pointer; padding: 0 12px;
-                          border-radius: 0; overflow: hidden; text-overflow: ellipsis; }
+                          border-radius: 6px; overflow: hidden; text-overflow: ellipsis; }
     #lcd span { display: inline-block; animation: scroll 10s linear infinite; }
     @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
     input[type="file"] { display: none; }
@@ -33,7 +34,6 @@
   <canvas id="canvas"></canvas>
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
-    <!-- 重要: `for="audioInput"` を外して二重起動を防止 -->
     <label id="folderButton">SELECT MUSIC FOLDER</label>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
@@ -44,6 +44,19 @@
 
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
+    /* ====== Fullscreen helper ====== */
+    let didFullscreen = false;
+    async function enterFullscreen() {
+      if (didFullscreen) return;
+      const el = document.documentElement;
+      try {
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
+        else if (el.msRequestFullscreen) await el.msRequestFullscreen();
+        didFullscreen = true;
+      } catch (e) { /* ignore */ }
+    }
+
     /* ====== Gray-Scott 可視化 ====== */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -203,6 +216,7 @@
         afterTrackStartUpdateUI(file.name);
 
         if (!canvasActivated) { canvas.classList.add('active'); canvasActivated = true; }
+        enterFullscreen();
 
       } catch (e) {
         lcdSpan.textContent = `Error: ${e.message}`; console.error(e);
@@ -210,6 +224,7 @@
     }
 
     document.getElementById('playButton').addEventListener('click', () => {
+      enterFullscreen();
       if (audioContext?.state === 'suspended') audioContext.resume();
       else if (playlist.length) playTrack(currentTrack);
     });
@@ -263,19 +278,20 @@
 
     let dirHandle;
     async function pickFolder() {
+      enterFullscreen();
       if ('showDirectoryPicker' in window) {
         try {
           dirHandle = await window.showDirectoryPicker({ mode: 'read' });
           const perm = await dirHandle.requestPermission({ mode: 'read' });
           if (perm !== 'granted') return;
-          await idbSet('musicDir', dirHandle);      // ★毎回上書き保存
+          await idbSet('musicDir', dirHandle);
           await loadFromDirectoryHandle(dirHandle);
         } catch (e) {
           console.warn('showDirectoryPicker failed:', e);
-          audioInput.click(); // フォールバック
+          audioInput.click();
         }
       } else {
-        audioInput.click(); // フォールバック
+        audioInput.click();
       }
     }
 
@@ -309,7 +325,6 @@
       lcdSpan.textContent = playlist.length ? 'LOADED (persistent folder)' : 'NO FILES';
     }
 
-    // 「for」を外したため、クリックでのみ動作
     folderButton.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -317,9 +332,11 @@
     });
 
     audioInput.addEventListener('change', e => {
-      playlist = Array.from(e.target.files).filter(f => f.type.startswith('audio/')).sort((a, b) => a.name.localeCompare(b.name));
+      playlist = Array.from(e.target.files).filter(f => f.type and f.type.startswith('audio/'))
+                 .sort((a, b) => a.name.localeCompare(b.name));
       currentTrack = 0;
       lcdSpan.textContent = playlist.length ? 'LOADED' : 'NO FILES';
+      enterFullscreen();
     });
 
     restoreMusicDirectory();
@@ -360,7 +377,7 @@
         if ('wakeLock' in navigator) {
           wakeLock = await navigator.wakeLock.request('screen');
         }
-      } catch (e) { console.warn('WakeLock error:', e); }
+      } catch (e) { /* ignore */ }
     }
     enableWakeLock();
     document.addEventListener('visibilitychange', async () => {
@@ -391,7 +408,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=8').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=9').catch(console.error);
       });
     }
   </script>
