@@ -5,12 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
   <title>Gray-Scott Visualizer (Minimal Fade-In)</title>
 
-  <!-- PWA -->
+  <!-- PWA (任意) -->
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="./icon-192.png">
   <meta name="theme-color" content="#000000">
-  <meta name="apple-mobile-web-app-capable" content="yes">
 
   <style>
     html, body { height: 100%; }
@@ -44,18 +42,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
-    let didFullscreen = false;
-    async function enterFullscreen() {
-      if (didFullscreen) return;
-      const el = document.documentElement;
-      try {
-        if (el.requestFullscreen) await el.requestFullscreen();
-        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
-        else if (el.msRequestFullscreen) await el.msRequestFullscreen();
-        didFullscreen = true;
-      } catch (e) {}
-    }
-
+    /* ====== Gray-Scott 可視化 ====== */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const size = 500;
@@ -65,9 +52,9 @@
 
     let U = new Float32Array(size * size).fill(1);
     let V = new Float32Array(size * size).fill(0);
-    for (let y = size/2 - 16; y < size/2 + 16; y++)
-      for (let x = size/2 - 16; x < size/2 + 16; x++)
-        V[y*size + x] = 1;
+    for (let y = size / 2 - 16; y < size / 2 + 16; y++)
+      for (let x = size / 2 - 16; x < size / 2 + 16; x++)
+        V[y * size + x] = 1;
 
     const du = 0.16, dv = 0.08, feedBase = 0.022, killBase = 0.051;
     let feed = feedBase, kill = killBase;
@@ -77,67 +64,357 @@
 
     function generatePinkNoise() {
       let total = 0;
-      for (let i=0;i<pinkNoise.length;i++){
-        if (Math.random() < 1/(1<<i)) pinkNoise[i] = Math.random()*2 - 1;
+      for (let i = 0; i < pinkNoise.length; i++) {
+        if (Math.random() < 1 / (1 << i)) pinkNoise[i] = Math.random() * 2 - 1;
         total += pinkNoise[i];
       }
-      return total/pinkNoise.length;
+      return total / pinkNoise.length;
     }
-    function lap(f, x, y){
-      return f[((y-1+size)%size)*size+x] + f[((y+1)%size)*size+x] +
-             f[y*size + ((x-1+size)%size)] + f[y*size + ((x+1)%size)] -
-             4*f[y*size+x];
+    function lap(f, x, y) {
+      return f[((y - 1 + size) % size) * size + x] + f[((y + 1) % size) * size + x] +
+             f[y * size + ((x - 1 + size) % size)] + f[y * size + ((x + 1) % size)] - 4 * f[y * size + x];
     }
-    function step(){
+    function step() {
       const U2 = new Float32Array(U.length), V2 = new Float32Array(V.length);
-      const t = performance.now()/1000;
-      const pf = generatePinkNoise()*0.0015, pk = generatePinkNoise()*0.0015;
-      const f = feedBase + pf + 0.0007*Math.sin(t*Math.PI/10) + flashFeed;
-      const k = killBase + pk + 0.0007*Math.cos(t*Math.PI/10) + flashKill;
+      const t = performance.now() / 1000;
+      const pf = generatePinkNoise() * 0.0015, pk = generatePinkNoise() * 0.0015;
+      const f = feedBase + pf + 0.0007 * Math.sin(t * Math.PI / 10) + flashFeed;
+      const k = killBase + pk + 0.0007 * Math.cos(t * Math.PI / 10) + flashKill;
       flashFeed *= 0.85; flashKill *= 0.85;
-      for (let i=0;i<U.length;i++){
-        const y = Math.floor(i/size), x = i%size;
-        const u=U[i], v=V[i];
-        const Lu = lap(U,x,y)*1.2;
-        const Lv = lap(V,x,y)*1.2;
-        U2[i] = u + (du*Lu - u*v*v + f*(1-u));
-        V2[i] = v + (dv*Lv + u*v*v - (f+k)*v);
+      for (let i = 0; i < U.length; i++) {
+        const y = Math.floor(i / size), x = i % size;
+        const u = U[i], v = V[i];
+        const Lu = lap(U, x, y) * 1.2;
+        const Lv = lap(V, x, y) * 1.2;
+        U2[i] = u + (du * Lu - u * v * v + f * (1 - u));
+        V2[i] = v + (dv * Lv + u * v * v - (f + k) * v);
       }
-      U=U2; V=V2;
+      U = U2; V = V2;
     }
-    function draw(){
+    function draw() {
       const d = imageData.data;
       const kTone = 3.0;
       const norm = x => Math.max(0, Math.min(1, x));
-      const tone = x => (1 - Math.exp(-kTone*x))/(1 - Math.exp(-kTone));
-      for (let i=0;i<U.length;i++){
-        const base = norm((U[i]-V[i])*1.0);
+      const tone = x => (1 - Math.exp(-kTone * x)) / (1 - Math.exp(-kTone));
+      for (let i = 0; i < U.length; i++) {
+        const base = norm((U[i] - V[i]) * 1.0);
         const t = tone(base);
-        const capped = Math.min(t,0.92);
-        const c = (capped*255)|0;
-        const p=i*4;
-        d[p]=d[p+1]=d[p+2]=c; d[p+3]=255;
+        const capped = Math.min(t, 0.92);
+        const c = (capped * 255) | 0;
+        const p = i * 4;
+        d[p] = d[p + 1] = d[p + 2] = c;
+        d[p + 3] = 255;
       }
-      ctx.putImageData(imageData,0,0);
+      ctx.putImageData(imageData, 0, 0);
     }
-    function loop(){
-      if (!paused){
-        let speed=3;
+    function loop() {
+      if (!paused) {
+        let speed = 3;
         if (playing && meyda?._features?.rms)
-          speed=Math.min(10,Math.floor(3+meyda._features.rms*20));
-        for (let i=0;i<speed;i++) step();
+          speed = Math.min(10, Math.floor(3 + meyda._features.rms * 20));
+        for (let i = 0; i < speed; i++) step();
       }
       if (canvasActivated) draw();
       requestAnimationFrame(loop);
     }
     loop();
 
-    canvas.addEventListener('click',()=>{
-      flashFeed = 0.02;
-      flashKill = -0.01;
+    canvas.addEventListener('click', () => { flashFeed = 0.02; flashKill = -0.01; });
+
+    /* ====== Audio 再生 ====== */
+    let audioContext, source, meyda;
+    let playlist = [], currentTrack = 0;
+    let playSessionId = 0;
+    const lcdSpan = document.querySelector('#lcd span');
+
+    function initAudio() {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    document.body.addEventListener('touchend', () => {
+      if (audioContext?.state === 'suspended') audioContext.resume();
+    }, { once: true });
+
+    async function stopCurrentTrack() {
+      if (source) {
+        try { source.onended = null; } catch {}
+        try { source.stop(); } catch {}
+        try { source.disconnect(); } catch {}
+        source = null;
+      }
+      playing = false;
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    async function loadAudioBuffer(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = evt => {
+          audioContext.decodeAudioData(evt.target.result).then(resolve).catch(reject);
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    function numericFileSort(a, b) {
+      const ra = a.name.match(/\d+/);
+      const rb = b.name.match(/\d+/);
+      if (ra && rb) {
+        const na = parseInt(ra[0], 10);
+        const nb = parseInt(rb[0], 10);
+        if (na !== nb) return na - nb;
+      } else if (ra && !rb) {
+        return -1; // 数字がある方を先に
+      } else if (!ra && rb) {
+        return 1;
+      }
+      return a.name.localeCompare(b.name, 'ja', { numeric: true, sensitivity: 'base' });
+    }
+
+    function nextIndex(idx, dir=+1) {
+      const n = playlist.length || 1;
+      return (idx + dir + n) % n;
+    }
+
+    async function playTrack(index) {
+      if (isSwitching || !playlist.length || index >= playlist.length || index < 0) return;
+      isSwitching = true;
+      const mySession = ++playSessionId;
+      try {
+        await stopCurrentTrack();
+        initAudio();
+        const file = playlist[index];
+        const buffer = await loadAudioBuffer(file);
+        if (!buffer) { lcdSpan.textContent = `Decode failed: ${file.name}`; return; }
+        if (mySession !== playSessionId) return;
+
+        source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 1024;
+        source.connect(analyser);
+        analyser.connect(audioContext.destination);
+
+        if (!meyda) {
+          meyda = Meyda.createMeydaAnalyzer({
+            audioContext, source: analyser, bufferSize: 512,
+            featureExtractors: ['rms', 'spectralCentroid'],
+            callback: f => {
+              if (!playing || paused) return;
+              feed = Math.min(feedBase + f.rms * 0.03, 0.04);
+              kill = Math.max(killBase - f.spectralCentroid / 6000 * 0.03, 0.04);
+            }
+          });
+          meyda.start();
+        } else {
+          meyda.setSource(analyser);
+        }
+
+        source.onended = () => {
+          if (mySession !== playSessionId) return;
+          playing = false;
+          const next = nextIndex(currentTrack, +1);
+          setTimeout(() => playTrack(next), 0);
+        };
+
+        lcdSpan.textContent = `TRACK ${index + 1}/${playlist.length}: ${file.name}`;
+        playing = true; paused = false; currentTrack = index;
+        await audioContext.resume();
+        source.start(0);
+
+        if (!canvasActivated) { canvas.classList.add('active'); canvasActivated = true; }
+
+      } catch (e) {
+        lcdSpan.textContent = `Error: ${e.message}`; console.error(e);
+      } finally { isSwitching = false; }
+    }
+
+    document.getElementById('playButton').addEventListener('click', () => {
+      if (audioContext?.state === 'suspended') audioContext.resume();
+      else if (playlist.length) playTrack(currentTrack);
+    });
+    document.getElementById('pauseButton').addEventListener('click', () => {
+      if (audioContext?.state === 'running') { audioContext.suspend(); paused = true; }
+    });
+    document.getElementById('skipButton').addEventListener('click', async () => {
+      if (isSwitching || !playlist.length) return;
+      await stopCurrentTrack(); await audioContext.resume();
+      await playTrack(nextIndex(currentTrack, +1));
+    });
+    document.getElementById('backButton').addEventListener('click', async () => {
+      if (isSwitching || !playlist.length) return;
+      await stopCurrentTrack(); await audioContext.resume();
+      await playTrack(nextIndex(currentTrack, -1));
     });
 
-    // ... (省略: audio, folder selection, wake lock, dimming etc. 同じ仕組みを維持)
+    /* ====== フォルダ選択（1ボタン／永続＋フォールバック統合） ====== */
+    const folderButton = document.getElementById('folderButton');
+    const audioInput = document.getElementById('audioInput');
+
+    function idbSet(key, value) {
+      return new Promise((resolve, reject) => {
+        const open = indexedDB.open('gsv-db', 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('s');
+        open.onsuccess = () => {
+          const tx = open.result.transaction('s', 'readwrite');
+          tx.objectStore('s').put(value, key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = reject;
+        };
+        open.onerror = reject;
+      });
+    }
+    function idbGet(key) {
+      return new Promise((resolve, reject) => {
+        const open = indexedDB.open('gsv-db', 1);
+        open.onupgradeneeded = () => open.result.createObjectStore('s');
+        open.onsuccess = () => {
+          const tx = open.result.transaction('s', 'readonly');
+          const req = tx.objectStore('s').get(key);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = reject;
+        };
+        open.onerror = reject;
+      });
+    }
+
+    let dirHandle;
+    async function pickFolder() {
+      if ('showDirectoryPicker' in window) {
+        try {
+          dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+          const perm = await dirHandle.requestPermission({ mode: 'read' });
+          if (perm !== 'granted') return;
+          await idbSet('musicDir', dirHandle);      // 毎回上書き保存
+          await loadFromDirectoryHandle(dirHandle);
+        } catch (e) {
+          console.warn('showDirectoryPicker failed:', e);
+          if (!(e && e.name === 'AbortError')) audioInput.click();
+        }
+      } else {
+        audioInput.click();
+      }
+    }
+
+    async function restoreMusicDirectory() {
+      try {
+        const h = await idbGet('musicDir'); if (!h) return false;
+        const status = await h.queryPermission({ mode: 'read' });
+        if (status !== 'granted') {
+          const p = await h.requestPermission({ mode: 'read' });
+          if (p !== 'granted') return false;
+        }
+        dirHandle = h; await loadFromDirectoryHandle(h); return true;
+      } catch (e) { return false; }
+    }
+
+    async function* iterateFilesRecursively(handle) {
+      for await (const [name, entry] of handle.entries()) {
+        if (entry.kind === 'file') yield await entry.getFile();
+        else if (entry.kind === 'directory') yield* iterateFilesRecursively(entry);
+      }
+    }
+
+    async function loadFromDirectoryHandle(handle) {
+      playlist = [];
+      for await (const file of iterateFilesRecursively(handle)) {
+        if ((file.type && file.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(file.name)) {
+          playlist.push(file);
+        }
+      }
+      playlist.sort(numericFileSort);
+      currentTrack = 0;
+      lcdSpan.textContent = playlist.length ? `LOADED ${playlist.length} files (numeric-first)` : 'NO FILES';
+    }
+
+    folderButton.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      pickFolder();
+    });
+
+    audioInput.addEventListener('change', e => {
+      const files = Array.from(e.target.files);
+      playlist = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
+      playlist.sort(numericFileSort);
+      currentTrack = 0;
+      lcdSpan.textContent = playlist.length ? `LOADED ${playlist.length} files (numeric-first)` : 'NO FILES';
+    });
+
+    restoreMusicDirectory();
+
+    /* ====== MediaSession & background ====== */
+    function updateMediaSessionMeta(name = 'Gray-Scott Visualizer') {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: name, artist: 'Local Audio', album: 'GSV' });
+        navigator.mediaSession.setActionHandler('play', () => { audioContext?.resume(); paused = false; });
+        navigator.mediaSession.setActionHandler('pause', () => { audioContext?.suspend(); paused = true; });
+        navigator.mediaSession.setActionHandler('previoustrack', () => { document.getElementById('backButton').click(); });
+        navigator.mediaSession.setActionHandler('nexttrack', () => { document.getElementById('skipButton').click(); });
+      }
+    }
+    function afterTrackStartUpdateUI(fileName) { updateMediaSessionMeta(fileName); }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (audioContext?.state === 'suspended' && playing && !paused) audioContext.resume().catch(()=>{});
+        resetBrightness();
+      }
+    });
+    window.addEventListener('pageshow', () => {
+      if (audioContext?.state === 'suspended' && playing && !paused) audioContext.resume().catch(()=>{});
+      resetBrightness();
+    });
+
+    setInterval(() => {
+      if (playing && !paused && audioContext && audioContext.state !== 'running') {
+        audioContext.resume().catch(()=>{});
+      }
+    }, 30000);
+
+    /* ====== Wake Lock 自動有効 ====== */
+    let wakeLock;
+    async function enableWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch (e) { /* ignore */ }
+    }
+    enableWakeLock();
+    document.addEventListener('visibilitychange', async () => {
+      if (wakeLock && document.visibilityState === 'visible') {
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+      }
+    });
+
+    /* ====== 減光 (30%)：無操作60秒で暗く、復帰/操作で100%に戻す ====== */
+    let dimTimer;
+    function scheduleDim() {
+      clearTimeout(dimTimer);
+      dimTimer = setTimeout(() => {
+        document.body.style.transition = 'filter 1s ease';
+        document.body.style.filter = 'brightness(30%)';
+      }, 60000);
+    }
+    function resetBrightness() {
+      document.body.style.filter = 'brightness(100%)';
+      scheduleDim();
+    }
+    document.addEventListener('click', resetBrightness);
+    document.addEventListener('touchstart', resetBrightness);
+    scheduleDim();
+  </script>
+
+  <!-- Service Worker 登録（任意） -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js?ver=12').catch(console.error);
+      });
+    }
   </script>
 </body>
 </html>
