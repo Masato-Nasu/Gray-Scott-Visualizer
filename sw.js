@@ -1,4 +1,4 @@
-const CACHE = 'gsv-v1';
+const CACHE = 'gsv-v2';
 const APP_SHELL = [
   './',
   './index.html',
