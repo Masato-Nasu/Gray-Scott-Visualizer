@@ -33,8 +33,8 @@
   <canvas id="canvas"></canvas>
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
-    <!-- フォルダ選択ボタンは1つだけ（オリジナルの見た目のまま） -->
-    <label id="folderButton" for="audioInput">SELECT MUSIC FOLDER</label>
+    <!-- 重要: `for="audioInput"` を外して二重起動を防止 -->
+    <label id="folderButton">SELECT MUSIC FOLDER</label>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
@@ -268,7 +268,7 @@
           dirHandle = await window.showDirectoryPicker({ mode: 'read' });
           const perm = await dirHandle.requestPermission({ mode: 'read' });
           if (perm !== 'granted') return;
-          await idbSet('musicDir', dirHandle);
+          await idbSet('musicDir', dirHandle);      // ★毎回上書き保存
           await loadFromDirectoryHandle(dirHandle);
         } catch (e) {
           console.warn('showDirectoryPicker failed:', e);
@@ -309,11 +309,15 @@
       lcdSpan.textContent = playlist.length ? 'LOADED (persistent folder)' : 'NO FILES';
     }
 
-    folderButton.addEventListener('click', pickFolder);
+    // 「for」を外したため、クリックでのみ動作
+    folderButton.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      pickFolder();
+    });
 
     audioInput.addEventListener('change', e => {
-      playlist = Array.from(e.target.files).filter(f => f.type.startswith('audio/'))
-                 .sort((a, b) => a.name.localeCompare(b.name));
+      playlist = Array.from(e.target.files).filter(f => f.type.startswith('audio/')).sort((a, b) => a.name.localeCompare(b.name));
       currentTrack = 0;
       lcdSpan.textContent = playlist.length ? 'LOADED' : 'NO FILES';
     });
@@ -387,7 +391,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=7').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=8').catch(console.error);
       });
     }
   </script>
