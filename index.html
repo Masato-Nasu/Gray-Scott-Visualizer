@@ -39,6 +39,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
+    /* ====== Gray-Scott visualizer ====== */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const size = 500;
@@ -53,7 +54,9 @@
         V[y * size + x] = 1;
 
     const du = 0.16, dv = 0.08;
-    let paused = false, playing = false, isSwitching = false;
+    let playing = false;           // 現在のトラックがセットされ再生可能な状態か
+    let audioPaused = false;       // 音声が一時停止中か
+    let isSwitching = false;
     let flashFeed = 0, flashKill = 0;
     const pinkNoise = Array(8).fill(0);
 
@@ -72,6 +75,7 @@
     function step() {
       const U2 = new Float32Array(U.length), V2 = new Float32Array(V.length);
       const t = performance.now() / 1000;
+      // 音声が止まっていても可視化は動かし続ける（速度はベース値）
       const pf = generatePinkNoise() * 0.0015, pk = generatePinkNoise() * 0.0015;
       const feedBase = 0.022, killBase = 0.051;
       const f = feedBase + pf + 0.0007 * Math.sin(t * Math.PI / 10) + flashFeed;
@@ -103,13 +107,11 @@
       ctx.putImageData(imageData, 0, 0);
     }
     function loop() {
-      if (!paused) {
-        let speed = 3;
-        if (playing && meyda?._features?.rms)
-          speed = Math.min(10, Math.floor(3 + meyda._features.rms * 20));
-        for (let i = 0; i < speed; i++) step();
-      }
-      if (canvasActivated) draw();
+      // 可視化は常に進める（audioPausedでも継続）
+      let speed = 3;
+      // 将来：音量に応じた加速は playing && !audioPaused でのみ有効でもOK
+      for (let i = 0; i < speed; i++) step();
+      draw();
       requestAnimationFrame(loop);
     }
     loop();
@@ -122,19 +124,31 @@
     let playSessionId = 0;
     const lcdSpan = document.querySelector('#lcd span');
 
+    function setLCDPausedNote() {
+      if (playlist.length) {
+        lcdSpan.textContent = `PAUSED — TRACK ${currentTrack + 1}/${playlist.length}: ${playlist[currentTrack].name}`;
+      } else {
+        lcdSpan.textContent = 'PAUSED';
+      }
+    }
+    function setLCDTrack() {
+      lcdSpan.textContent = `TRACK ${currentTrack + 1}/${playlist.length}: ${playlist[currentTrack].name}`;
+    }
+
     function initAudio() {
       if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         audioContext.onstatechange = () => {
-          if (audioContext.state === 'suspended' && playing && !paused) {
-            paused = true;
-            lcdSpan.textContent = 'PAUSED (system interruption)';
+          // 電話/オーディオ経路変更などでsuspendされたら、明示的に停止状態へ
+          if (audioContext.state === 'suspended' && playing && !audioPaused) {
+            audioPaused = true;
+            setLCDPausedNote();
           }
         };
       }
     }
     document.body.addEventListener('touchend', () => {
-      if (audioContext?.state === 'suspended') audioContext.resume();
+      if (audioContext?.state === 'suspended' && !audioPaused) audioContext.resume();
     }, { once: true });
 
     async function stopCurrentTrack() {
@@ -144,7 +158,6 @@
         try { source.disconnect(); } catch {}
         source = null;
       }
-      playing = false;
       await new Promise(r => setTimeout(r, 50));
     }
     async function loadAudioBuffer(file) {
@@ -196,7 +209,7 @@
           meyda = Meyda.createMeydaAnalyzer({
             audioContext, source: analyser, bufferSize: 512,
             featureExtractors: ['rms', 'spectralCentroid'],
-            callback: f => { if (!playing || paused) return; }
+            callback: f => { /* 可視化は内部ノイズで動いているため必須ではない */ }
           });
           meyda.start();
         } else {
@@ -205,14 +218,15 @@
 
         source.onended = () => {
           if (mySession !== playSessionId) return;
-          if (!paused) {
-            playing = false;
+          if (!audioPaused) {
             setTimeout(() => playTrack(nextIndex(currentTrack, +1)), 0);
           }
         };
 
-        lcdSpan.textContent = `TRACK ${index + 1}/${playlist.length}: ${file.name}`;
-        playing = true; paused = false; currentTrack = index;
+        currentTrack = index;
+        setLCDTrack();
+        playing = true;
+        audioPaused = false;
         await audioContext.resume();
         source.start(0);
 
@@ -224,27 +238,37 @@
     }
 
     document.getElementById('playButton').addEventListener('click', () => {
-      if (audioContext?.state === 'suspended') audioContext.resume();
-      else if (playlist.length) playTrack(currentTrack);
+      if (!playlist.length) return;
+      if (audioContext?.state === 'suspended') {
+        audioPaused = false;
+        audioContext.resume().then(() => setLCDTrack()).catch(()=>{});
+      } else if (!source) {
+        playTrack(currentTrack);
+      } else {
+        audioPaused = false;
+        audioContext.resume().then(() => setLCDTrack()).catch(()=>{});
+      }
     });
     document.getElementById('pauseButton').addEventListener('click', () => {
-      if (audioContext?.state === 'running') { audioContext.suspend(); paused = true; lcdSpan.textContent = 'PAUSED'; }
+      if (!audioContext) return;
+      try { audioContext.suspend(); } catch {}
+      audioPaused = true;
+      setLCDPausedNote();
     });
     document.getElementById('skipButton').addEventListener('click', async () => {
       if (isSwitching || !playlist.length) return;
-      await stopCurrentTrack(); await audioContext.resume();
+      await stopCurrentTrack(); if (audioContext) await audioContext.resume();
       await playTrack(nextIndex(currentTrack, +1));
     });
     document.getElementById('backButton').addEventListener('click', async () => {
       if (isSwitching || !playlist.length) return;
-      await stopCurrentTrack(); await audioContext.resume();
+      await stopCurrentTrack(); if (audioContext) await audioContext.resume();
       await playTrack(nextIndex(currentTrack, -1));
     });
 
-    /* ====== Folder / files selection (cross‑platform) ====== */
+    /* ====== Picker (cross‑platform) ====== */
     const folderButton = document.getElementById('folderButton');
     const audioInput = document.getElementById('audioInput');
-
     function idbSet(key, value) {
       return new Promise((resolve, reject) => {
         const open = indexedDB.open('gsv-db', 1);
@@ -280,7 +304,6 @@
       await idbSet('musicDir', dirHandle);
       await loadFromDirectoryHandle(dirHandle);
     }
-
     async function* iterateFilesRecursively(handle) {
       for await (const [name, entry] of handle.entries()) {
         if (entry.kind === 'file') yield await entry.getFile();
@@ -292,36 +315,31 @@
       for await (const f of iterateFilesRecursively(handle)) files.push(f);
       ingestFiles(files);
     }
-
     function ingestFiles(files) {
       const audios = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
       audios.sort(numericFileSort);
       playlist = audios;
       currentTrack = 0;
-      const txt = playlist.length ? `LOADED ${playlist.length} files` : 'NO FILES';
-      lcdSpan.textContent = txt;
+      if (playlist.length) setLCDTrack(); else lcdSpan.textContent = 'NO FILES';
     }
-
     folderButton.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
       try {
         if ('showDirectoryPicker' in window) {
-          await pickFolderNative();
+          await pickFolderNative(); // Desktop
         } else {
-          audioInput.click();
+          audioInput.click();       // Android / iOS
         }
       } catch (err) {
         console.warn('Picker failed, fallback to input:', err);
         audioInput.click();
       }
     });
-
     audioInput.addEventListener('change', (e) => {
       const files = Array.from(e.target.files || []);
       ingestFiles(files);
     });
-
     (async () => {
       try {
         const h = await idbGet('musicDir');
@@ -335,53 +353,47 @@
       } catch {}
     })();
 
-    /* ====== MediaSession & watchdog ====== */
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.setActionHandler('play', () => { audioContext?.resume(); paused = false; lcdSpan.textContent = 'PLAYING'; });
-      navigator.mediaSession.setActionHandler('pause', () => { audioContext?.suspend(); paused = true; lcdSpan.textContent = 'PAUSED'; });
-      navigator.mediaSession.setActionHandler('previoustrack', () => { document.getElementById('backButton').click(); });
-      navigator.mediaSession.setActionHandler('nexttrack', () => { document.getElementById('skipButton').click(); });
-    }
-    setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      if (paused) return;
-      if (playing && audioContext && audioContext.state !== 'running') {
-        audioContext.resume().catch(()=>{});
-      }
-    }, 30000);
-
+    /* ====== Background policy (no auto-resume) ====== */
     function autoPause(reason) {
       try { if (audioContext?.state === 'running') audioContext.suspend(); } catch {}
-      paused = true;
-      if (reason) lcdSpan.textContent = `PAUSED (${reason})`;
+      audioPaused = true;
+      if (reason === 'background') {
+        // 復帰後に「PAUSED — TRACK…」へ差し替えるので一時的な文言
+        lcdSpan.textContent = 'PAUSED (background)';
+      } else {
+        setLCDPausedNote();
+      }
     }
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState !== 'visible') autoPause('background');
+      if (document.visibilityState === 'hidden') autoPause('background');
+      if (document.visibilityState === 'visible' && audioPaused) {
+        // 自動再生はしない。表示だけ整える。
+        if (playlist.length) setLCDPausedNote();
+      }
     });
     window.addEventListener('pagehide', () => autoPause('background'));
 
-    if (navigator.mediaDevices && 'addEventListener' in navigator.mediaDevices) {
-      navigator.mediaDevices.addEventListener('devicechange', () => {
-        if (playing && !paused) autoPause('device change');
+    /* ====== MediaSession ====== */
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (!playlist.length) return;
+        audioPaused = false;
+        audioContext?.resume().then(setLCDTrack).catch(()=>{});
       });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        audioPaused = true;
+        try { audioContext?.suspend(); } catch {}
+        setLCDPausedNote();
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => { document.getElementById('backButton').click(); });
+      navigator.mediaSession.setActionHandler('nexttrack', () => { document.getElementById('skipButton').click(); });
     }
-
-    let wakeLock;
-    async function enableWakeLock() {
-      try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
-    }
-    enableWakeLock();
-    document.addEventListener('visibilitychange', async () => {
-      if (document.visibilityState === 'visible' && 'wakeLock' in navigator) {
-        try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
-      }
-    });
   </script>
 
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=14').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=15').catch(console.error);
       });
     }
   </script>
