@@ -3,28 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Gray-Scott Visualizer — Wake Lock</title>
+  <title>Gray-Scott Visualizer — Wake Lock + Media Session</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
   <style>
     html, body { height: 100%; }
-    body { margin: 0; background: #000; color: #fff; font-family: system-ui, sans-serif;
+    body { margin: 0; background: #000; color: #fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
            display: flex; flex-direction: column; align-items: center; padding: 16px; }
-    canvas { background: #000; width: 100%; max-width: 500px; aspect-ratio: 1 / 1;
-             border-radius: 6px; opacity: 0; transition: opacity 0.8s ease; pointer-events: none; }
+    canvas { background: #000; width: 100%; max-width: 520px; aspect-ratio: 1 / 1;
+             border-radius: 8px; opacity: 0; transition: opacity .8s ease; pointer-events: none; }
     canvas.active { opacity: 1; pointer-events: auto; }
     #controls { display: flex; flex-direction: column; align-items: stretch; width: 100%;
-                max-width: 500px; margin-top: 16px; gap: 8px; }
+                max-width: 520px; margin-top: 16px; gap: 8px; }
     #lcd, button, label { height: 48px; background: #111; border: 1px solid #444; color: #fff;
-                          font-size: 16px; font-family: monospace; display: flex; align-items: center;
-                          justify-content: center; white-space: nowrap; cursor: pointer; padding: 0 12px;
-                          border-radius: 8px; overflow: hidden; text-overflow: ellipsis; }
+                          font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                          display: flex; align-items: center; justify-content: center; white-space: nowrap;
+                          cursor: pointer; padding: 0 12px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; }
     #lcd small { opacity: .7; margin-left: 8px; font-size: 12px; }
     #lcd span { display: inline-block; animation: scroll 12s linear infinite; }
     @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
     input[type="file"] { display: none; }
-    audio { display:none; }
+    audio { display: none; }
   </style>
 </head>
 <body>
@@ -58,15 +58,14 @@
 
     const du = 0.16, dv = 0.08;
     let flashFeed = 0, flashKill = 0;
-    const pinkNoise = Array(8).fill(0);
-
-    function generatePinkNoise() {
+    const pink = Array(8).fill(0);
+    function pinkNoise() {
       let total = 0;
-      for (let i = 0; i < pinkNoise.length; i++) {
-        if (Math.random() < 1 / (1 << i)) pinkNoise[i] = Math.random() * 2 - 1;
-        total += pinkNoise[i];
+      for (let i = 0; i < pink.length; i++) {
+        if (Math.random() < 1 / (1 << i)) pink[i] = Math.random() * 2 - 1;
+        total += pink[i];
       }
-      return total / pinkNoise.length;
+      return total / pink.length;
     }
     function lap(f, x, y) {
       return f[((y - 1 + size) % size) * size + x] + f[((y + 1) % size) * size + x] +
@@ -75,10 +74,8 @@
     function step() {
       const U2 = new Float32Array(U.length), V2 = new Float32Array(V.length);
       const t = performance.now() / 1000;
-      const pf = generatePinkNoise() * 0.0015, pk = generatePinkNoise() * 0.0015;
-      const feedBase = 0.022, killBase = 0.051;
-      const f = feedBase + pf + 0.0007 * Math.sin(t * Math.PI / 10) + flashFeed;
-      const k = killBase + pk + 0.0007 * Math.cos(t * Math.PI / 10) + flashKill;
+      const f = 0.022 + pinkNoise() * 0.0015 + 0.0007 * Math.sin(t * Math.PI / 10) + flashFeed;
+      const k = 0.051 + pinkNoise() * 0.0015 + 0.0007 * Math.cos(t * Math.PI / 10) + flashKill;
       flashFeed *= 0.85; flashKill *= 0.85;
       for (let i = 0; i < U.length; i++) {
         const y = Math.floor(i / size), x = i % size;
@@ -111,13 +108,17 @@
     /* ========= Audio via <audio> ========= */
     const player = document.getElementById('player');
     let audioCtx, mediaSrc, analyser, meydaAnalyzer;
+
     function ensureGraph(){
       if (audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       mediaSrc = audioCtx.createMediaElementSource(player);
       analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
       mediaSrc.connect(analyser); analyser.connect(audioCtx.destination);
-      meydaAnalyzer = Meyda.createMeydaAnalyzer({ audioContext: audioCtx, source: analyser, bufferSize: 512, featureExtractors:['rms','spectralCentroid'], callback:()=>{} });
+      meydaAnalyzer = Meyda.createMeydaAnalyzer({
+        audioContext: audioCtx, source: analyser, bufferSize: 512,
+        featureExtractors: ['rms', 'spectralCentroid'], callback: ()=>{}
+      });
       try { meydaAnalyzer.start(); } catch {}
     }
 
@@ -142,6 +143,7 @@
       urls = playlist.map(f=>URL.createObjectURL(f));
       current = 0; player.src = '';
       lcd(playlist.length ? `LOADED ${playlist.length} files${label?' — '+label:''}` : 'NO FILES');
+      updateMediaSessionMetadata();
     }
 
     async function play(index=current){
@@ -153,7 +155,8 @@
         ensureGraph(); try{ await audioCtx.resume(); }catch{}
         lcd(nowText());
         if (!canvasActivated){ canvas.classList.add('active'); canvasActivated = true; }
-        await requestWakeLock(); // ensure screen stays on while playing
+        await requestWakeLock(); // keep screen on
+        updateMediaSessionMetadata();
       } catch(e) {
         console.warn('play() blocked:', e);
       }
@@ -187,35 +190,53 @@
         if(!('wakeLock' in navigator)) return;
         if(wakeLock) return;
         wakeLock = await navigator.wakeLock.request('screen');
-        // small badge
         if(!document.querySelector('#lcd small')) lcdSpan.insertAdjacentHTML('beforeend',' <small>• screen on</small>');
         wakeLock.addEventListener('release',()=>{
           wakeLock = null;
           clearTimeout(wakeRetryTimer);
-          // try to re-acquire shortly after release (some devices release on dim events)
           wakeRetryTimer = setTimeout(()=>{ requestWakeLock(); }, 500);
         });
       }catch(e){
-        // transient errors: retry later
         clearTimeout(wakeRetryTimer);
         wakeRetryTimer = setTimeout(()=>{ requestWakeLock(); }, 1000);
       }
     }
-    // On visibility return / focus, make sure lock is active & playback continues
     document.addEventListener('visibilitychange', ()=>{
       if(document.visibilityState === 'visible'){
         requestWakeLock();
-        if (!player.paused) { player.play().catch(()=>{}); } // continue if OS paused silently
+        if (!player.paused) { player.play().catch(()=>{}); }
       }
     });
-    window.addEventListener('focus', ()=>{ requestWakeLock(); if(!player.paused){ player.play().catch(()=>{}); } });
-
-    // acquire once on first user gesture
+    window.addEventListener('focus', ()=>{
+      requestWakeLock();
+      if (!player.paused) { player.play().catch(()=>{}); }
+    });
     ['click','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{ requestWakeLock(); }, { once:true }));
 
-    // Optional: register SW if present (harmless if missing)
-    if('serviceWorker' in navigator){
-      addEventListener('load', ()=>{
+    /* ========= Media Session ========= */
+    function updateMediaSessionMetadata(){
+      if (!('mediaSession' in navigator)) return;
+      const name = playlist[current]?.name || '—';
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: name,
+        artist: 'Gray-Scott Visualizer',
+        album: 'GSV',
+        artwork: [
+          { src: './icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: './icon-512.png', sizes: '512x512', type: 'image/png' }
+        ]
+      });
+    }
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => { player.play().catch(()=>{}); });
+      navigator.mediaSession.setActionHandler('pause', () => { player.pause(); });
+      navigator.mediaSession.setActionHandler('previoustrack', () => { play((current - 1 + playlist.length) % playlist.length); });
+      navigator.mediaSession.setActionHandler('nexttrack', () => { play((current + 1) % playlist.length); });
+    }
+
+    /* ========= Service Worker (optional) ========= */
+    if ('serviceWorker' in navigator) {
+      addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').catch(()=>{});
       });
     }
