@@ -1,7 +1,6 @@
 # Gray-Scott Visualizer (Minimal Fade-In)
 
 音楽に合わせて生成される **Gray-Scott 反応拡散パターン** をリアルタイムに可視化する Web アプリです。  
-ブラウザだけで動作し、GitHub Pages から簡単に公開・体験できます。  
 📱 **PWA対応 (iPhone / Android / PC 全対応確認済み)** — スマホやPCにインストールしてアプリのように使えます！
 
 ---
@@ -11,7 +10,8 @@
 - 🌊 **リアルタイム生成** — Gray-Scott 反応拡散モデルでパターンが進化  
 - 🖼️ **インタラクティブ** — クリックでフィード／キル値にフラッシュ効果  
 - 📱 **PWA対応** — GitHub Pagesから直接インストール可能  
-- 🌙 **Wake Lock対応** — 画面が暗転せず連続再生できる（Android/Chrome）  
+- 🌙 **Wake Lock対応** — 画面が暗転せず連続再生できる（Android/Chrome）。  
+   → 実質 **バックグラウンド再生に近い体験** が可能！  
 - 🎧 **Media Session対応** — 通知バー・ロック画面・イヤホンボタンから操作可能。電話着信時もOS側で自動制御され安心
 
 ---
@@ -26,20 +26,18 @@
 ---
 
 ## 制約について（重要）
-- このアプリは **PWA（ブラウザアプリ）** として動作します  
-- そのため **バックグラウンド再生は不可** です  
-- 画面を閉じたり、別アプリに切り替えると音声は停止します  
+- PWAの仕様上、**完全なバックグラウンド再生は不可**  
+- ただし Wake Lock により **画面ON状態なら暗転せず音楽継続可能**  
+- 端末ロックや他アプリを開いた場合は再生停止します  
 
 ---
 
 ## スクリーンショット
-
 ![Gray-Scott Visualizer Screenshot](./screenshot.png)
 
 ---
 
 ## デモページ
-
 https://masato-nasu.github.io/Gray-Scott-Visualizer/
 
 ---
@@ -48,7 +46,7 @@ https://masato-nasu.github.io/Gray-Scott-Visualizer/
 1. 「SELECT MUSIC FOLDER / FILES」から音楽ファイルをまとめて読み込み  
    - **PC**：フォルダを選択（サブフォルダ内も再帰的に読み込み）  
    - **Android**：フォルダ相当のディレクトリ選択が可能  
-   - **iPhone/iPad**：ファイルアプリからフォルダを開き、中の曲をまとめて選択可能（フォルダ単位で扱える体験）  
+   - **iPhone/iPad**：ファイルアプリから複数曲を選択（フォルダ的に扱える体験）  
 2. **PLAY** で再生開始  
 3. **PAUSE / NEXT / PREVIOUS** で操作可能  
 4. キャンバスをクリックするとパターンが一時的に変調  
@@ -74,7 +72,6 @@ MIT License
 # Gray-Scott Visualizer (Minimal Fade-In)
 
 A **real-time Gray-Scott reaction-diffusion visualizer** that responds to music.  
-Runs entirely in the browser and can be easily installed as a PWA via GitHub Pages.  
 📱 **PWA Support (Tested on iPhone / Android / PC)** — Works like an app on your device!
 
 ---
@@ -82,9 +79,10 @@ Runs entirely in the browser and can be easily installed as a PWA via GitHub Pag
 ## Features
 - 🎶 **Music Input** — Load local audio files and react to audio features  
 - 🌊 **Real-Time Generation** — Dynamic Gray-Scott reaction-diffusion patterns  
-- 🖼️ **Interactive** — Click on the canvas to trigger flash effects  
+- 🖼️ **Interactive** — Click the canvas to trigger flash effects  
 - 📱 **PWA Support** — Installable directly from GitHub Pages  
-- 🌙 **Wake Lock** — Prevents screen dimming; keeps music and visuals running (Android/Chrome)  
+- 🌙 **Wake Lock** — Prevents screen dimming; keeps music and visuals running (Android/Chrome).  
+   → Provides an **almost background playback experience**  
 - 🎧 **Media Session** — Control playback via notifications, lock screen, or headset buttons. Integrates smoothly with phone calls
 
 ---
@@ -99,29 +97,27 @@ Runs entirely in the browser and can be easily installed as a PWA via GitHub Pag
 ---
 
 ## Limitations
-- This is a **PWA (Progressive Web App)**  
-- **Background playback is not supported**  
-- Audio stops if you close the screen or switch to another app  
+- As a PWA, **full background playback is not supported**  
+- With Wake Lock enabled, playback continues as long as the screen stays ON  
+- Playback stops when the device is locked or another app is brought to the foreground  
 
 ---
 
 ## Screenshot
-
 ![Gray-Scott Visualizer Screenshot](./screenshot.png)
 
 ---
 
 ## Demo Page
-
 https://masato-nasu.github.io/Gray-Scott-Visualizer/
 
 ---
 
 ## Usage
 1. Select music using **SELECT MUSIC FOLDER / FILES**  
-   - **PC**: Pick a folder (recursive load of subfolders)  
-   - **Android**: Choose a directory  
-   - **iPhone/iPad**: Select multiple files from the Files app (works like folder selection)  
+   - **PC**: Choose a folder (recursive load of subfolders)  
+   - **Android**: Select a directory  
+   - **iPhone/iPad**: Choose multiple files from the Files app (similar to folder selection)  
 2. Press **PLAY** to start playback  
 3. Use **PAUSE / NEXT / PREVIOUS** for controls  
 4. Click the canvas to apply temporary flash effects  
@@ -135,13 +131,11 @@ https://masato-nasu.github.io/Gray-Scott-Visualizer/
 ---
 
 ## Deployment
-1. Create a repo and upload `index.html` and `screenshot.png`  
-2. GitHub → **Settings → Pages** → publish `main` branch / root  
-3. After a few minutes your app will be available at:  
-   `https://username.github.io/repository/`  
+1. Upload `index.html` and `screenshot.png` to your repository  
+2. GitHub → **Settings → Pages** → set to `main` branch / root  
+3. Access at: `https://username.github.io/repository/`  
 
 ---
 
 ## License
 MIT License
-
