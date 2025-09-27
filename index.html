@@ -12,15 +12,15 @@
     body { margin: 0; background: #000; color: #fff; font-family: system-ui, sans-serif;
            display: flex; flex-direction: column; align-items: center; padding: 16px; }
     canvas { background: #000; width: 100%; max-width: 500px; aspect-ratio: 1 / 1;
-             border-radius: 4px; opacity: 0; transition: opacity 1s ease; pointer-events: none; }
+             border-radius: 6px; opacity: 0; transition: opacity 0.8s ease; pointer-events: none; }
     canvas.active { opacity: 1; pointer-events: auto; }
     #controls { display: flex; flex-direction: column; align-items: stretch; width: 100%;
                 max-width: 500px; margin-top: 16px; gap: 8px; }
     #lcd, button { height: 48px; background: #111; border: 1px solid #444; color: #fff;
                    font-size: 16px; font-family: monospace; display: flex; align-items: center;
                    justify-content: center; white-space: nowrap; cursor: pointer; padding: 0 12px;
-                   border-radius: 6px; overflow: hidden; text-overflow: ellipsis; }
-    #lcd span { display: inline-block; animation: scroll 10s linear infinite; }
+                   border-radius: 8px; overflow: hidden; text-overflow: ellipsis; }
+    #lcd span { display: inline-block; animation: scroll 12s linear infinite; }
     @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
     input[type="file"] { display: none; }
   </style>
@@ -39,7 +39,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
-    /* ====== Gray-Scott visualizer ====== */
+    /* ================== Gray-Scott 可視化 ================== */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const size = 500;
@@ -54,8 +54,7 @@
         V[y * size + x] = 1;
 
     const du = 0.16, dv = 0.08;
-    let playing = false;           // 現在のトラックがセットされ再生可能な状態か
-    let audioPaused = false;       // 音声が一時停止中か
+    let audioPaused = true;   // 音声の一時停止状態（手動再開まで続く）
     let isSwitching = false;
     let flashFeed = 0, flashKill = 0;
     const pinkNoise = Array(8).fill(0);
@@ -75,7 +74,6 @@
     function step() {
       const U2 = new Float32Array(U.length), V2 = new Float32Array(V.length);
       const t = performance.now() / 1000;
-      // 音声が止まっていても可視化は動かし続ける（速度はベース値）
       const pf = generatePinkNoise() * 0.0015, pk = generatePinkNoise() * 0.0015;
       const feedBase = 0.022, killBase = 0.051;
       const f = feedBase + pf + 0.0007 * Math.sin(t * Math.PI / 10) + flashFeed;
@@ -107,9 +105,8 @@
       ctx.putImageData(imageData, 0, 0);
     }
     function loop() {
-      // 可視化は常に進める（audioPausedでも継続）
+      // 音声とは独立して常に可視化を進める
       let speed = 3;
-      // 将来：音量に応じた加速は playing && !audioPaused でのみ有効でもOK
       for (let i = 0; i < speed; i++) step();
       draw();
       requestAnimationFrame(loop);
@@ -118,31 +115,30 @@
 
     canvas.addEventListener('click', () => { flashFeed = 0.02; flashKill = -0.01; });
 
-    /* ====== Audio playback ====== */
+    /* ================== Audio 再生 ================== */
     let audioContext, source, meyda;
-    let playlist = [], currentTrack = 0;
+    let playlist = [], currentTrack = 0, playing = false;
     let playSessionId = 0;
     const lcdSpan = document.querySelector('#lcd span');
 
-    function setLCDPausedNote() {
-      if (playlist.length) {
-        lcdSpan.textContent = `PAUSED — TRACK ${currentTrack + 1}/${playlist.length}: ${playlist[currentTrack].name}`;
-      } else {
-        lcdSpan.textContent = 'PAUSED';
-      }
+    function lcd(text) { lcdSpan.textContent = text; }
+    function lcdTrack() {
+      if (!playlist.length) lcd('NO FILES');
+      else lcd(`TRACK ${currentTrack + 1}/${playlist.length}: ${playlist[currentTrack].name}`);
     }
-    function setLCDTrack() {
-      lcdSpan.textContent = `TRACK ${currentTrack + 1}/${playlist.length}: ${playlist[currentTrack].name}`;
+    function lcdPaused() {
+      if (!playlist.length) lcd('PAUSED');
+      else lcd(`PAUSED — TRACK ${currentTrack + 1}/${playlist.length}: ${playlist[currentTrack].name}`);
     }
 
     function initAudio() {
       if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         audioContext.onstatechange = () => {
-          // 電話/オーディオ経路変更などでsuspendされたら、明示的に停止状態へ
+          // イヤホン抜けや通話で suspend された場合も「停止扱い」にする
           if (audioContext.state === 'suspended' && playing && !audioPaused) {
             audioPaused = true;
-            setLCDPausedNote();
+            lcdPaused();
           }
         };
       }
@@ -158,7 +154,8 @@
         try { source.disconnect(); } catch {}
         source = null;
       }
-      await new Promise(r => setTimeout(r, 50));
+      playing = false;
+      await new Promise(r => setTimeout(r, 30));
     }
     async function loadAudioBuffer(file) {
       return new Promise((resolve, reject) => {
@@ -174,32 +171,29 @@
       const ra = a.name.match(/\d+/);
       const rb = b.name.match(/\d+/);
       if (ra && rb) {
-        const na = parseInt(ra[0], 10);
-        const nb = parseInt(rb[0], 10);
+        const na = parseInt(ra[0], 10), nb = parseInt(rb[0], 10);
         if (na !== nb) return na - nb;
       } else if (ra && !rb) return -1;
       else if (!ra && rb) return 1;
       return a.name.localeCompare(b.name, 'ja', { numeric: true, sensitivity: 'base' });
     }
-    function nextIndex(idx, dir=+1) {
-      const n = playlist.length || 1;
-      return (idx + dir + n) % n;
-    }
+    function nextIndex(idx, dir=+1) { const n = playlist.length || 1; return (idx + dir + n) % n; }
 
     async function playTrack(index) {
-      if (isSwitching || !playlist.length || index >= playlist.length || index < 0) return;
+      if (isSwitching || !playlist.length || index < 0 || index >= playlist.length) return;
       isSwitching = true;
       const mySession = ++playSessionId;
       try {
         await stopCurrentTrack();
         initAudio();
+
         const file = playlist[index];
         const buffer = await loadAudioBuffer(file);
-        if (!buffer) { lcdSpan.textContent = `Decode failed: ${file.name}`; return; }
         if (mySession !== playSessionId) return;
 
         source = audioContext.createBufferSource();
         source.buffer = buffer;
+
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 1024;
         source.connect(analyser);
@@ -209,7 +203,7 @@
           meyda = Meyda.createMeydaAnalyzer({
             audioContext, source: analyser, bufferSize: 512,
             featureExtractors: ['rms', 'spectralCentroid'],
-            callback: f => { /* 可視化は内部ノイズで動いているため必須ではない */ }
+            callback: () => {} // 可視化は内部ノイズで十分
           });
           meyda.start();
         } else {
@@ -218,13 +212,11 @@
 
         source.onended = () => {
           if (mySession !== playSessionId) return;
-          if (!audioPaused) {
-            setTimeout(() => playTrack(nextIndex(currentTrack, +1)), 0);
-          }
+          if (!audioPaused) setTimeout(() => playTrack(nextIndex(currentTrack, +1)), 0);
         };
 
         currentTrack = index;
-        setLCDTrack();
+        lcdTrack();
         playing = true;
         audioPaused = false;
         await audioContext.resume();
@@ -233,77 +225,91 @@
         if (!canvasActivated) { canvas.classList.add('active'); canvasActivated = true; }
 
       } catch (e) {
-        lcdSpan.textContent = `Error: ${e.message}`; console.error(e);
+        lcd(`Error: ${e.message}`); console.error(e);
       } finally { isSwitching = false; }
     }
 
+    /* ===== controls ===== */
     document.getElementById('playButton').addEventListener('click', () => {
       if (!playlist.length) return;
-      if (audioContext?.state === 'suspended') {
+      if (!source) playTrack(currentTrack);
+      else {
         audioPaused = false;
-        audioContext.resume().then(() => setLCDTrack()).catch(()=>{});
-      } else if (!source) {
-        playTrack(currentTrack);
-      } else {
-        audioPaused = false;
-        audioContext.resume().then(() => setLCDTrack()).catch(()=>{});
+        audioContext?.resume().then(lcdTrack).catch(()=>{});
       }
     });
     document.getElementById('pauseButton').addEventListener('click', () => {
       if (!audioContext) return;
       try { audioContext.suspend(); } catch {}
-      audioPaused = true;
-      setLCDPausedNote();
+      audioPaused = true; lcdPaused();
     });
     document.getElementById('skipButton').addEventListener('click', async () => {
-      if (isSwitching || !playlist.length) return;
+      if (!playlist.length) return;
       await stopCurrentTrack(); if (audioContext) await audioContext.resume();
       await playTrack(nextIndex(currentTrack, +1));
     });
     document.getElementById('backButton').addEventListener('click', async () => {
-      if (isSwitching || !playlist.length) return;
+      if (!playlist.length) return;
       await stopCurrentTrack(); if (audioContext) await audioContext.resume();
       await playTrack(nextIndex(currentTrack, -1));
     });
 
-    /* ====== Picker (cross‑platform) ====== */
+    /* ================== Picker（クロスプラットフォーム） ================== */
     const folderButton = document.getElementById('folderButton');
     const audioInput = document.getElementById('audioInput');
-    function idbSet(key, value) {
+
+    function idbOpen() {
       return new Promise((resolve, reject) => {
         const open = indexedDB.open('gsv-db', 1);
         open.onupgradeneeded = () => open.result.createObjectStore('s');
-        open.onsuccess = () => {
-          const tx = open.result.transaction('s', 'readwrite');
-          tx.objectStore('s').put(value, key);
-          tx.oncomplete = () => resolve();
-          tx.onerror = reject;
-        };
+        open.onsuccess = () => resolve(open.result);
         open.onerror = reject;
       });
     }
-    function idbGet(key) {
+    async function idbSet(key, value) {
+      const db = await idbOpen();
       return new Promise((resolve, reject) => {
-        const open = indexedDB.open('gsv-db', 1);
-        open.onupgradeneeded = () => open.result.createObjectStore('s');
-        open.onsuccess = () => {
-          const tx = open.result.transaction('s', 'readonly');
-          const req = tx.objectStore('s').get(key);
-          req.onsuccess = () => resolve(req.result);
-          req.onerror = reject;
-        };
-        open.onerror = reject;
+        const tx = db.transaction('s', 'readwrite');
+        tx.objectStore('s').put(value, key);
+        tx.oncomplete = resolve;
+        tx.onerror = reject;
+      });
+    }
+    async function idbGet(key) {
+      const db = await idbOpen();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('s', 'readonly');
+        const req = tx.objectStore('s').get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = reject;
+      });
+    }
+    async function idbDel(key) {
+      const db = await idbOpen();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('s', 'readwrite');
+        tx.objectStore('s').delete(key);
+        tx.oncomplete = resolve;
+        tx.onerror = reject;
       });
     }
 
     let dirHandle;
-    async function pickFolderNative() {
-      dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-      const perm = await dirHandle.requestPermission({ mode: 'read' });
-      if (perm !== 'granted') throw new DOMException('Permission denied');
-      await idbSet('musicDir', dirHandle);
-      await loadFromDirectoryHandle(dirHandle);
+    let loadSession = 0;
+
+    async function replacePlaylistWith(files, label='') {
+      const myLoad = ++loadSession;  // 直前のロードを無効化
+      await stopCurrentTrack();      // 再生中なら必ず停止
+      const audios = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
+      audios.sort(numericFileSort);
+      if (myLoad !== loadSession) return;
+      playlist = audios;
+      currentTrack = 0;
+      audioPaused = true;
+      if (playlist.length) lcd(`LOADED ${playlist.length} files${label ? ' — ' + label : ''}`);
+      else lcd('NO FILES');
     }
+
     async function* iterateFilesRecursively(handle) {
       for await (const [name, entry] of handle.entries()) {
         if (entry.kind === 'file') yield await entry.getFile();
@@ -311,35 +317,42 @@
       }
     }
     async function loadFromDirectoryHandle(handle) {
-      let files = [];
+      const files = [];
       for await (const f of iterateFilesRecursively(handle)) files.push(f);
-      ingestFiles(files);
+      await replacePlaylistWith(files, handle?.name || '');
     }
-    function ingestFiles(files) {
-      const audios = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
-      audios.sort(numericFileSort);
-      playlist = audios;
-      currentTrack = 0;
-      if (playlist.length) setLCDTrack(); else lcdSpan.textContent = 'NO FILES';
+
+    async function pickFolderNative() {
+      const h = await window.showDirectoryPicker({ mode: 'read' });
+      const perm = await h.requestPermission({ mode: 'read' });
+      if (perm !== 'granted') throw new DOMException('Permission denied');
+      dirHandle = h;
+      await idbSet('musicDir', h);           // 常に上書き
+      await loadFromDirectoryHandle(h);
     }
+
     folderButton.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       try {
         if ('showDirectoryPicker' in window) {
-          await pickFolderNative(); // Desktop
+          await pickFolderNative();          // デスクトップ：フォルダ直接
         } else {
-          audioInput.click();       // Android / iOS
+          audioInput.click();                // モバイル：ファイル複数選択
         }
       } catch (err) {
         console.warn('Picker failed, fallback to input:', err);
         audioInput.click();
       }
     });
-    audioInput.addEventListener('change', (e) => {
+
+    audioInput.addEventListener('change', async (e) => {
       const files = Array.from(e.target.files || []);
-      ingestFiles(files);
+      await idbDel('musicDir');              // モバイルはフォルダ保持できないため復元情報を消す
+      dirHandle = null;
+      await replacePlaylistWith(files);
     });
+
+    // 起動時復元（PCのみ効果あり）
     (async () => {
       try {
         const h = await idbGet('musicDir');
@@ -353,37 +366,32 @@
       } catch {}
     })();
 
-    /* ====== Background policy (no auto-resume) ====== */
+    /* ================== 背景化ポリシー（自動再開しない） ================== */
     function autoPause(reason) {
       try { if (audioContext?.state === 'running') audioContext.suspend(); } catch {}
       audioPaused = true;
-      if (reason === 'background') {
-        // 復帰後に「PAUSED — TRACK…」へ差し替えるので一時的な文言
-        lcdSpan.textContent = 'PAUSED (background)';
-      } else {
-        setLCDPausedNote();
-      }
+      if (reason === 'background') lcd('PAUSED (background)'); else lcdPaused();
     }
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') autoPause('background');
       if (document.visibilityState === 'visible' && audioPaused) {
-        // 自動再生はしない。表示だけ整える。
-        if (playlist.length) setLCDPausedNote();
+        // 復帰時は "(background)" を通常の PAUSED 表示へ正規化
+        lcdPaused();
       }
     });
     window.addEventListener('pagehide', () => autoPause('background'));
 
-    /* ====== MediaSession ====== */
+    /* ================== MediaSession ================== */
     if ('mediaSession' in navigator) {
       navigator.mediaSession.setActionHandler('play', () => {
         if (!playlist.length) return;
         audioPaused = false;
-        audioContext?.resume().then(setLCDTrack).catch(()=>{});
+        audioContext?.resume().then(lcdTrack).catch(()=>{});
       });
       navigator.mediaSession.setActionHandler('pause', () => {
         audioPaused = true;
         try { audioContext?.suspend(); } catch {}
-        setLCDPausedNote();
+        lcdPaused();
       });
       navigator.mediaSession.setActionHandler('previoustrack', () => { document.getElementById('backButton').click(); });
       navigator.mediaSession.setActionHandler('nexttrack', () => { document.getElementById('skipButton').click(); });
@@ -393,7 +401,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=15').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=16').catch(console.error);
       });
     }
   </script>
