@@ -3,8 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Gray-Scott Visualizer — Resume from Exact Position</title>
+  <title>Gray-Scott Visualizer</title>
+
+  <!-- PWA: manifest & icons (relative paths for GitHub Pages under /username/repo/) -->
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
   <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+
   <style>
     html, body { height: 100%; }
     body { margin: 0; background: #000; color: #fff; font-family: system-ui, sans-serif;
@@ -22,7 +30,6 @@
     @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
     input[type="file"] { display: none; }
     audio { display:none; }
-    /* Resume overlay */
     #resumeOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.7); display:none;
       align-items:center; justify-content:center; z-index:999; }
     #resumeOverlay button{ min-width: 240px; height: 56px; font-size: 18px; border-radius: 10px;
@@ -43,9 +50,10 @@
   <div id="resumeOverlay"><button id="resumeBtn">RESUME</button></div>
   <audio id="player" preload="metadata" playsinline></audio>
 
+  <!-- Meyda for audio features -->
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
-    /* ====== Visualizer (same look) ====== */
+    // ===== Visualizer =====
     const canvas=document.getElementById('canvas'); const ctx=canvas.getContext('2d');
     const size=500; canvas.width=canvas.height=size; const imageData=ctx.createImageData(size,size);
     let canvasActivated=false; let U=new Float32Array(size*size).fill(1), V=new Float32Array(size*size).fill(0);
@@ -64,7 +72,7 @@
     ;(function loop(){for(let i=0;i<3;i++)step();draw();requestAnimationFrame(loop);})();
     canvas.addEventListener('click',()=>{flashFeed=.02;flashKill=-.01;});
 
-    /* ====== Player: HTMLAudioElement + exact resume ====== */
+    // ===== Player: HTMLAudioElement + exact resume =====
     const player=document.getElementById('player');
     let playlist=[], urls=[], current=0;
     let audioCtx=null, analyser=null, meyda=null;
@@ -134,7 +142,7 @@
     });
     audioInput.addEventListener('change', async (e)=>{ await replacePlaylist([...e.target.files||[]]); });
 
-    /* ====== Background exact resume ====== */
+    // ===== Background exact resume =====
     let autoPaused=false, savedTime=0;
     const overlay=document.getElementById('resumeOverlay'); const resumeBtn=document.getElementById('resumeBtn');
     function showResumeOverlay(){ overlay.style.display='flex'; resumeBtn.textContent = savedTime ? `RESUME from ${fmt(savedTime)}` : 'RESUME'; }
@@ -154,6 +162,12 @@
     // Tap LCD to resume too
     document.getElementById('lcd').addEventListener('click', ()=>{ if(autoPaused) showResumeOverlay(); });
 
+    // ===== Service Worker registration (relative path!) =====
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js?v=1').catch(err => console.error('SW registration failed', err));
+      });
+    }
   </script>
 </body>
 </html>
