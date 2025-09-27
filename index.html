@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Gray-Scott Visualizer — Auto-Resume w/ Gesture Fallback</title>
+  <title>Gray-Scott Visualizer — AudioElement Fallback</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
@@ -25,6 +25,7 @@
     #lcd span { display: inline-block; animation: scroll 12s linear infinite; }
     @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
     input[type="file"] { display: none; }
+    audio { display:none; }
   </style>
 </head>
 <body>
@@ -38,9 +39,11 @@
     <button id="backButton">PREVIOUS</button>
     <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
   </div>
+  <audio id="player" preload="metadata" playsinline></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
+    /* ===== Visualizer (same as before) ===== */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const size = 500; canvas.width = canvas.height = size;
@@ -70,168 +73,111 @@
     (function loop(){ for(let i=0;i<3;i++) step(); draw(); requestAnimationFrame(loop); })();
     canvas.addEventListener('click',()=>{ flashFeed=0.02; flashKill=-0.01; });
 
-    /* ======= Audio & UI ======= */
-    let audioContext, source, meyda, masterGain;
-    let playlist=[], currentTrack=0, playing=false, audioPaused=true;
-    let playSessionId=0, stopToken=0, loadToken=0;
-    let trackBuffer=null, startedAtCtxTime=0, pausedOffsetSec=0, autoPausedByBackground=false;
-    const lcdSpan=document.querySelector('#lcd span');
-    const lcd=t=>lcdSpan.textContent=t;
-    const lcdTrack=()=>playlist.length?lcd(`TRACK ${currentTrack+1}/${playlist.length}: ${playlist[currentTrack].name}`):lcd('NO FILES');
-    const lcdPaused=()=>playlist.length?lcd(`PAUSED — TRACK ${currentTrack+1}/${playlist.length}: ${playlist[currentTrack].name}`):lcd('PAUSED');
-
-    function ensureContext(){
-      if(!audioContext){
-        audioContext=new (window.AudioContext||window.webkitAudioContext)();
-        masterGain=audioContext.createGain(); masterGain.gain.value=1.0; masterGain.connect(audioContext.destination);
+    /* ===== Audio via <audio> element ===== */
+    const player = document.getElementById('player');
+    let audioCtx, mediaSrc, analyser, meyda, gain;
+    function ensureCtx(){
+      if(!audioCtx){
+        audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+        gain = audioCtx.createGain(); gain.gain.value = 1.0; gain.connect(audioCtx.destination);
+        mediaSrc = audioCtx.createMediaElementSource(player); mediaSrc.connect(gain);
+        analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
+        mediaSrc.connect(analyser);
+        meyda = Meyda.createMeydaAnalyzer({ audioContext: audioCtx, source: analyser, bufferSize: 512, featureExtractors:['rms','spectralCentroid'], callback:()=>{} });
+        try{ meyda.start(); }catch{}
       }
     }
-    async function softKill(){ stopToken++; if(source){ try{source.onended=null;}catch{} try{source.stop(0);}catch{} try{source.disconnect();}catch{} source=null; }
-      if(meyda){ try{meyda.stop();}catch{} meyda=null; }
-      if(audioContext){ try{ await audioContext.suspend(); }catch{} }
-      playing=false; audioPaused=true; }
 
-    function numericFileSort(a,b){const ra=a.name.match(/\d+/),rb=b.name.match(/\d+/);
-      if(ra&&rb){const na=+ra[0],nb=+rb[0]; if(na!==nb)return na-nb;} else if(ra&&!rb)return -1; else if(!ra&&rb)return 1;
-      return a.name.localeCompare(b.name,'ja',{numeric:true,sensitivity:'base'}); }
-    const nextIndex=(i,d=+1)=>(i+d+(playlist.length||1))%(playlist.length||1);
+    let playlist=[], urls=[], current=0;
+    let autoPaused=false;
 
-    async function loadBuffer(file,myLoad){ return new Promise((resolve,reject)=>{
-      const reader=new FileReader();
-      reader.onload=e=>{ if(myLoad!==loadToken) return reject(new DOMException('aborted','AbortError'));
-        ensureContext(); audioContext.decodeAudioData(e.target.result).then(b=>{
-          if(myLoad!==loadToken) reject(new DOMException('aborted','AbortError')); else resolve(b);
-        }).catch(reject);
-      }; reader.readAsArrayBuffer(file);
-    }); }
+    const lcdSpan = document.querySelector('#lcd span');
+    const lcd = t => (lcdSpan.innerHTML = t);
+    const nowText = () => playlist.length ? `TRACK ${current+1}/${playlist.length}: ${playlist[current].name}` : 'NO FILES';
 
-    async function playTrack(index, offset=0){
-      if(!playlist.length || index<0 || index>=playlist.length) return;
-      const mySession=++playSessionId, myStop=stopToken, myLoad=loadToken;
-      await softKill(); ensureContext();
-      const file=playlist[index];
-      const buf=(trackBuffer && index===currentTrack && offset>0) ? trackBuffer : await loadBuffer(file,myLoad);
-      if(mySession!==playSessionId||myStop!==stopToken||myLoad!==loadToken) return;
-      trackBuffer=buf;
-      source=audioContext.createBufferSource(); source.buffer=buf;
-      const analyser=audioContext.createAnalyser(); analyser.fftSize=1024;
-      source.connect(analyser); analyser.connect(masterGain||audioContext.destination);
-      if(!meyda){ meyda=Meyda.createMeydaAnalyzer({audioContext, source:analyser, bufferSize:512, featureExtractors:['rms','spectralCentroid'], callback:()=>{}}); try{meyda.start();}catch{} }
-      else { meyda.setSource(analyser); }
-      source.onended=()=>{ if(mySession!==playSessionId||myStop!==stopToken||myLoad!==loadToken) return; if(!audioPaused) setTimeout(()=>playTrack(nextIndex(currentTrack,+1),0),0); };
-      currentTrack=index; startedAtCtxTime = (audioContext.currentTime - offset); lcdTrack();
-      playing=true; audioPaused=false; await audioContext.resume(); source.start(0, offset);
-      if(!canvasActivated){ canvas.classList.add('active'); canvasActivated=true; }
+    function sortNumeric(files){
+      return files.sort((a,b)=>{
+        const ra=a.name.match(/\d+/), rb=b.name.match(/\d+/);
+        if(ra&&rb){ const na=+ra[0], nb=+rb[0]; if(na!==nb) return na-nb; }
+        else if(ra&&!rb) return -1; else if(!ra&&rb) return 1;
+        return a.name.localeCompare(b.name,'ja',{numeric:true,sensitivity:'base'});
+      });
     }
 
+    function revokeAll(){ urls.forEach(u=>URL.revokeObjectURL(u)); urls=[]; }
+    async function replacePlaylist(files,label=''){
+      player.pause(); autoPaused=false; revokeAll();
+      playlist = sortNumeric(files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name)));
+      urls = playlist.map(f=>URL.createObjectURL(f));
+      current = 0; player.src=''; lcd(playlist.length?`LOADED ${playlist.length} files${label?' — '+label:''}`:'NO FILES');
+    }
+
+    function play(index=current){
+      if(!playlist.length) return;
+      ensureCtx();
+      current = Math.max(0, Math.min(index, playlist.length-1));
+      player.src = urls[current];
+      player.currentTime = (autoPaused ? player.currentTime : 0) || 0; // resume where it was if autoPaused retained state
+      player.play().then(()=>{
+        autoPaused=false; lcd(nowText());
+        if(!canvasActivated){ canvas.classList.add('active'); canvasActivated=true; }
+        audioCtx.resume().catch(()=>{});
+      }).catch(err=>{
+        // Need gesture — show hint
+        lcd(`TAP TO <strong>RESUME</strong> — ${nowText()}`);
+        const once = ()=>{ document.removeEventListener('touchstart', once); document.removeEventListener('click', once);
+          player.play().then(()=>{ autoPaused=false; lcd(nowText()); }).catch(()=>{}); };
+        document.addEventListener('touchstart', once, { once:true });
+        document.addEventListener('click', once, { once:true });
+      });
+    }
+    function pauseManual(){ player.pause(); autoPaused=false; lcd(`PAUSED — ${nowText()}`); }
+
+    // events
+    player.addEventListener('ended', ()=>{ play((current+1)%playlist.length); });
+
+    // UI
     const folderButton=document.getElementById('folderButton');
     const audioInput=document.getElementById('audioInput');
-    const playButton=document.getElementById('playButton');
-    const pauseButton=document.getElementById('pauseButton');
-    const skipButton=document.getElementById('skipButton');
-    const backButton=document.getElementById('backButton');
+    document.getElementById('playButton').addEventListener('click', ()=> play(current));
+    document.getElementById('pauseButton').addEventListener('click', pauseManual);
+    document.getElementById('skipButton').addEventListener('click', ()=>{ play((current+1)%playlist.length); });
+    document.getElementById('backButton').addEventListener('click', ()=>{ play((current-1+playlist.length)%playlist.length); });
 
-    playButton.addEventListener('click',()=>{ requestWakeLock();
-      if(!playlist.length) return;
-      const offset = (autoPausedByBackground || pausedOffsetSec>0) ? pausedOffsetSec : 0;
-      autoPausedByBackground=false; pausedOffsetSec=0;
-      if(!source) playTrack(currentTrack, offset); else { audioPaused=false; ensureContext(); audioContext?.resume().then(lcdTrack).catch(()=>{}); } });
-    pauseButton.addEventListener('click',async()=>{ if(audioContext&&source&&trackBuffer){ pausedOffsetSec=Math.max(0,audioContext.currentTime-startedAtCtxTime); }
-      autoPausedByBackground=false; audioPaused=true; lcdPaused(); await softKill(); });
-    skipButton.addEventListener('click',async()=>{ pausedOffsetSec=0; autoPausedByBackground=false; await softKill(); await playTrack(nextIndex(currentTrack,+1),0); });
-    backButton.addEventListener('click',async()=>{ pausedOffsetSec=0; autoPausedByBackground=false; await softKill(); await playTrack(nextIndex(currentTrack,-1),0); });
-
-    function idbOpen(){return new Promise((res,rej)=>{const o=indexedDB.open('gsv-db',1);o.onupgradeneeded=()=>o.result.createObjectStore('s');o.onsuccess=()=>res(o.result);o.onerror=rej;});}
-    async function idbSet(k,v){const db=await idbOpen();return new Promise((res,rej)=>{const tx=db.transaction('s','readwrite');tx.objectStore('s').put(v,k);tx.oncomplete=res;tx.onerror=rej;});}
-    async function idbGet(k){const db=await idbOpen();return new Promise((res,rej)=>{const tx=db.transaction('s','readonly');const r=tx.objectStore('s').get(k);r.onsuccess=()=>res(r.result);r.onerror=rej;});}
-    async function idbDel(k){const db=await idbOpen();return new Promise((res,rej)=>{const tx=db.transaction('s','readwrite');tx.objectStore('s').delete(k);tx.oncomplete=res;tx.onerror=rej;});}
-
-    let dirHandle;
-    async function replacePlaylist(files,label=''){ loadToken++; playSessionId++; await softKill(); trackBuffer=null; pausedOffsetSec=0; autoPausedByBackground=false;
-      const audios=files.filter(f=>(f.type&&f.type.startsWith('audio/'))||/\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name)); audios.sort(numericFileSort);
-      playlist=audios; currentTrack=0; audioPaused=true; playing=false; lcd(playlist.length?`LOADED ${playlist.length} files${label?' — '+label:''}`:'NO FILES'); }
     async function* walk(h){ for await (const [name,e] of h.entries()){ if(e.kind==='file') yield await e.getFile(); else if(e.kind==='directory') yield* walk(e);} }
     async function loadFromDir(h){ const files=[]; for await(const f of walk(h)) files.push(f); await replacePlaylist(files, h?.name||''); }
-    async function pickFolderNative(){ const h=await window.showDirectoryPicker({mode:'read'}); const p=await h.requestPermission({mode:'read'}); if(p!=='granted') throw new DOMException('Permission denied');
-      dirHandle=h; await idbSet('musicDir',h); await loadFromDir(h); }
-    folderButton.addEventListener('click',async(e)=>{ e.preventDefault(); e.stopPropagation(); requestWakeLock();
-      try{ if('showDirectoryPicker' in window){ await pickFolderNative(); } else { audioInput.click(); } }catch(err){ console.warn('Picker failed, fallback:',err); audioInput.click(); } });
-    audioInput.addEventListener('change',async(e)=>{ const files=Array.from(e.target.files||[]); await idbDel('musicDir'); dirHandle=null; await replacePlaylist(files); });
-    (async()=>{ try{ const h=await idbGet('musicDir'); if(!h||!('queryPermission' in h)) return; const st=await h.queryPermission({mode:'read'});
-      if(st!=='granted'){ const p=await h.requestPermission({mode:'read'}); if(p!=='granted') return; } dirHandle=h; await loadFromDir(h);}catch{} })();
+    async function pickFolderNative(){ const h=await window.showDirectoryPicker({mode:'read'}); const p=await h.requestPermission({mode:'read'}); if(p!=='granted') throw new DOMException('Permission denied'); await loadFromDir(h); }
 
-    /* ==== Background -> Foreground auto-resume with gesture fallback ==== */
-    function currentOffset(){ if(!audioContext||!trackBuffer) return 0; return Math.max(0,(audioContext.currentTime-startedAtCtxTime)); }
-
-    async function pauseForBackground(){
-      if(playing && !audioPaused){
-        pausedOffsetSec = currentOffset(); autoPausedByBackground = true;
-        try{ await (audioContext?.suspend?.()); }catch{}
-        audioPaused = true; lcd('PAUSED (background)');
-      }
-    }
-
-    function gestureResumeSetup(){
-      lcd(`TAP TO <strong>RESUME</strong> — TRACK ${currentTrack+1}/${playlist.length}: ${playlist[currentTrack]?.name||''}`);
-      const once = async ()=>{
-        document.removeEventListener('touchstart', once);
-        document.removeEventListener('click', once);
-        const off = pausedOffsetSec || 0; pausedOffsetSec=0; autoPausedByBackground=false;
-        await playTrack(currentTrack, off);
-      };
-      document.addEventListener('touchstart', once, { once:true });
-      document.addEventListener('click', once, { once:true });
-    }
-
-    async function tryAutoResume(){
-      if(!autoPausedByBackground) return;
-      autoPausedByBackground=false;
-      ensureContext();
-      try{
-        await audioContext.resume();
-        // If source lost, rebuild from offset
-        if(!source){ const off = pausedOffsetSec||0; pausedOffsetSec=0; await playTrack(currentTrack, off); return; }
-        audioPaused=false; playing=true; lcdTrack();
-      }catch(e){
-        // Some browsers require a gesture to resume
-        gestureResumeSetup();
-      }
-    }
-
-    document.addEventListener('visibilitychange',()=>{
-      if(document.visibilityState==='hidden') pauseForBackground();
-      if(document.visibilityState==='visible') setTimeout(tryAutoResume, 200); // small delay for Android
+    folderButton.addEventListener('click', async (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      requestWakeLock();
+      try { if('showDirectoryPicker' in window){ await pickFolderNative(); } else { audioInput.click(); } }
+      catch(err){ console.warn('Picker failed',err); audioInput.click(); }
     });
-    window.addEventListener('pagehide',()=>pauseForBackground());
+    audioInput.addEventListener('change', async (e)=>{
+      const files = Array.from(e.target.files||[]);
+      await replacePlaylist(files);
+    });
 
-    /* ========= Wake Lock ========= */
-    let wakeLock=null, wakeRetryTimer=null;
+    // background -> foreground
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState==='hidden'){ if(!player.paused){ autoPaused=true; player.pause(); lcd('PAUSED (background)'); } }
+      if(document.visibilityState==='visible'){ if(autoPaused){ play(current); } }
+    });
+    window.addEventListener('pagehide', ()=>{ if(!player.paused){ autoPaused=true; player.pause(); lcd('PAUSED (background)'); } });
+
+    /* Wake Lock */
+    let wakeLock=null, wakeRetry=null;
     async function requestWakeLock(){ try{ if(!('wakeLock' in navigator)) return; if(wakeLock) return;
       wakeLock=await navigator.wakeLock.request('screen');
       if(!document.querySelector('#lcd small')) lcdSpan.insertAdjacentHTML('beforeend','<small>• screen on</small>');
-      wakeLock.addEventListener('release',()=>{ wakeLock=null; clearTimeout(wakeRetryTimer); wakeRetryTimer=setTimeout(()=>{requestWakeLock();},500); });
-    }catch(e){ clearTimeout(wakeRetryTimer); wakeRetryTimer=setTimeout(()=>{requestWakeLock();},1000);}}
-    document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') requestWakeLock(); });
+      wakeLock.addEventListener('release',()=>{ wakeLock=null; clearTimeout(wakeRetry); wakeRetry=setTimeout(()=>{requestWakeLock();},500); });
+    }catch(e){ clearTimeout(wakeRetry); wakeRetry=setTimeout(()=>{requestWakeLock();},1000); } }
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') requestWakeLock(); });
     ['click','touchstart'].forEach(ev=>document.addEventListener(ev,requestWakeLock,{once:true}));
 
-    /* MediaSession */
-    if('mediaSession' in navigator){
-      navigator.mediaSession.setActionHandler('play',async()=>{
-        const off = pausedOffsetSec||0; pausedOffsetSec=0; autoPausedByBackground=false;
-        if(!playlist.length) return; await playTrack(currentTrack, off);
-      });
-      navigator.mediaSession.setActionHandler('pause',async()=>{ pausedOffsetSec=currentOffset(); audioPaused=true; await softKill(); lcdPaused(); });
-      navigator.mediaSession.setActionHandler('previoustrack',()=>backButton.click());
-      navigator.mediaSession.setActionHandler('nexttrack',()=>skipButton.click());
-    }
-  </script>
-
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=23').catch(console.error);
-      });
-    }
+    /* SW */
+    if('serviceWorker' in navigator){ addEventListener('load', ()=>{ navigator.serviceWorker.register('./sw.js?ver=24').catch(console.error); }); }
   </script>
 </body>
 </html>
