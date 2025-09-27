@@ -70,3 +70,78 @@ https://masato-nasu.github.io/Gray-Scott-Visualizer/
 
 ## ライセンス
 MIT License
+
+# Gray-Scott Visualizer (Minimal Fade-In)
+
+A **real-time Gray-Scott reaction-diffusion visualizer** that responds to music.  
+Runs entirely in the browser and can be easily installed as a PWA via GitHub Pages.  
+📱 **PWA Support (Tested on iPhone / Android / PC)** — Works like an app on your device!
+
+---
+
+## Features
+- 🎶 **Music Input** — Load local audio files and react to audio features  
+- 🌊 **Real-Time Generation** — Dynamic Gray-Scott reaction-diffusion patterns  
+- 🖼️ **Interactive** — Click on the canvas to trigger flash effects  
+- 📱 **PWA Support** — Installable directly from GitHub Pages  
+- 🌙 **Wake Lock** — Prevents screen dimming; keeps music and visuals running (Android/Chrome)  
+- 🎧 **Media Session** — Control playback via notifications, lock screen, or headset buttons. Integrates smoothly with phone calls
+
+---
+
+## Installation (PWA)
+1. Open the demo page  
+   👉 [https://masato-nasu.github.io/Gray-Scott-Visualizer/](https://masato-nasu.github.io/Gray-Scott-Visualizer/)  
+2. **PC (Chrome/Edge)**: Click the “Install” icon in the URL bar  
+3. **Android (Chrome)**: Menu “⋮” → “Install” or “Add to Home screen”  
+4. **iOS (Safari)**: Share → “Add to Home Screen”  
+
+---
+
+## Limitations
+- This is a **PWA (Progressive Web App)**  
+- **Background playback is not supported**  
+- Audio stops if you close the screen or switch to another app  
+
+---
+
+## Screenshot
+
+![Gray-Scott Visualizer Screenshot](./screenshot.png)
+
+---
+
+## Demo Page
+
+https://masato-nasu.github.io/Gray-Scott-Visualizer/
+
+---
+
+## Usage
+1. Select music using **SELECT MUSIC FOLDER / FILES**  
+   - **PC**: Pick a folder (recursive load of subfolders)  
+   - **Android**: Choose a directory  
+   - **iPhone/iPad**: Select multiple files from the Files app (works like folder selection)  
+2. Press **PLAY** to start playback  
+3. Use **PAUSE / NEXT / PREVIOUS** for controls  
+4. Click the canvas to apply temporary flash effects  
+
+---
+
+## Tech Stack
+- HTML / CSS / JavaScript  
+- [Meyda](https://meyda.js.org/) (Audio feature extraction library)  
+
+---
+
+## Deployment
+1. Create a repo and upload `index.html` and `screenshot.png`  
+2. GitHub → **Settings → Pages** → publish `main` branch / root  
+3. After a few minutes your app will be available at:  
+   `https://username.github.io/repository/`  
+
+---
+
+## License
+MIT License
+
