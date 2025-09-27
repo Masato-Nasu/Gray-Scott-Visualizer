@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Gray-Scott Visualizer (Hard Kill on Switch)</title>
+  <title>Gray-Scott Visualizer (Hard Kill Fixed)</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
@@ -136,9 +136,9 @@
       }
     }
 
-    async function hardKillPlayback() {
-      // Invalidate everything
-      playSessionId++; stopToken++; loadToken++;
+    async function hardKillPlayback(opts={ bumpTokens:true }) {
+      const { bumpTokens } = opts;
+      if (bumpTokens) { playSessionId++; stopToken++; loadToken++; }
       try { if (source) { try { source.onended = null; } catch {}; try { source.stop(0); } catch {}; try { source.disconnect(); } catch {}; } } catch {}
       source = null;
       try { if (meyda) { try { meyda.stop(); } catch {}; } } catch {}
@@ -151,7 +151,7 @@
       }
       audioContext = null;
       playing = false; audioPaused = true;
-      await new Promise(r => setTimeout(r, 20)); // give the platform a tick
+      await new Promise(r => setTimeout(r, 16));
     }
 
     document.body.addEventListener('touchend', () => {
@@ -162,7 +162,6 @@
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = evt => {
-          // Ignore if invalidated mid-flight
           if (myLoad !== loadToken) return reject(new DOMException('aborted','AbortError'));
           audioContext.decodeAudioData(evt.target.result).then(b => {
             if (myLoad !== loadToken) reject(new DOMException('aborted','AbortError'));
@@ -188,7 +187,8 @@
       const myStop = stopToken;
       const myLoad = loadToken;
       try {
-        await hardKillPlayback();   // ensure nothing is playing (also resets context)
+        // IMPORTANT: kill without bumping tokens to avoid invalidating mySession
+        await hardKillPlayback({ bumpTokens:false });
         initAudio();
         const file = playlist[index];
         const buffer = await loadAudioBuffer(file, myLoad);
@@ -225,20 +225,20 @@
       requestWakeLock();
       if (!playlist.length) return;
       if (!source) playTrack(currentTrack);
-      else { audioPaused=false; audioContext?.resume().then(lcdTrack).catch(()=>{}); }
+      else { audioPaused=false; initAudio(); audioContext?.resume().then(lcdTrack).catch(()=>{}); }
     });
     pauseButton.addEventListener('click', async () => {
       audioPaused = true; lcdPaused();
-      await hardKillPlayback();
+      await hardKillPlayback({ bumpTokens:true });
     });
     skipButton.addEventListener('click', async () => {
       if (!playlist.length) return;
-      await hardKillPlayback();
+      await hardKillPlayback({ bumpTokens:false });
       await playTrack(nextIndex(currentTrack,+1));
     });
     backButton.addEventListener('click', async () => {
       if (!playlist.length) return;
-      await hardKillPlayback();
+      await hardKillPlayback({ bumpTokens:false });
       await playTrack(nextIndex(currentTrack,-1));
     });
 
@@ -254,12 +254,8 @@
     let dirHandle;
 
     async function replacePlaylistWith(files,label='') {
-      // HARD KILL any current playback (prevents resurrection)
-      await hardKillPlayback();
-
-      // Overwrite tokens so old async work becomes invalid
-      playSessionId++; stopToken++; loadToken++;
-
+      // HARD KILL current playback and invalidate pending work
+      await hardKillPlayback({ bumpTokens:true });
       const audios = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
       audios.sort(numericFileSort);
       playlist = audios; currentTrack = 0; audioPaused = true; playing = false;
@@ -310,7 +306,7 @@
     /* ========= Background policy ========= */
     function autoPause(reason){
       audioPaused = true;
-      hardKillPlayback(); // make sure everything is stopped when going background
+      hardKillPlayback({ bumpTokens:true });
       lcd(reason==='background' ? 'PAUSED (background)' : 'PAUSED');
     }
     document.addEventListener('visibilitychange',()=>{
@@ -349,7 +345,7 @@
         audioPaused=false; initAudio(); audioContext?.resume().then(lcdTrack).catch(()=>{});
       });
       navigator.mediaSession.setActionHandler('pause',()=>{
-        audioPaused=true; hardKillPlayback().then(lcdPaused);
+        audioPaused=true; hardKillPlayback({ bumpTokens:true }).then(lcdPaused);
       });
       navigator.mediaSession.setActionHandler('previoustrack',()=>backButton.click());
       navigator.mediaSession.setActionHandler('nexttrack',()=>skipButton.click());
@@ -359,7 +355,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=19').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=20').catch(console.error);
       });
     }
   </script>
