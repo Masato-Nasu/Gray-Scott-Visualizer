@@ -3,169 +3,220 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Gray-Scott Visualizer</title>
-
-  <!-- PWA: manifest & icons (relative paths for GitHub Pages under /username/repo/) -->
+  <title>Gray-Scott Visualizer — Wake Lock</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="./icon-192.png">
   <meta name="theme-color" content="#000000">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-
   <style>
     html, body { height: 100%; }
     body { margin: 0; background: #000; color: #fff; font-family: system-ui, sans-serif;
            display: flex; flex-direction: column; align-items: center; padding: 16px; }
     canvas { background: #000; width: 100%; max-width: 500px; aspect-ratio: 1 / 1;
-             border-radius: 6px; opacity: 0; transition: opacity 1s ease; pointer-events: none; }
+             border-radius: 6px; opacity: 0; transition: opacity 0.8s ease; pointer-events: none; }
     canvas.active { opacity: 1; pointer-events: auto; }
     #controls { display: flex; flex-direction: column; align-items: stretch; width: 100%;
                 max-width: 500px; margin-top: 16px; gap: 8px; }
     #lcd, button, label { height: 48px; background: #111; border: 1px solid #444; color: #fff;
                           font-size: 16px; font-family: monospace; display: flex; align-items: center;
                           justify-content: center; white-space: nowrap; cursor: pointer; padding: 0 12px;
-                          border-radius: 6px; overflow: hidden; text-overflow: ellipsis; }
-    #lcd span { display: inline-block; animation: scroll 10s linear infinite; }
+                          border-radius: 8px; overflow: hidden; text-overflow: ellipsis; }
+    #lcd small { opacity: .7; margin-left: 8px; font-size: 12px; }
+    #lcd span { display: inline-block; animation: scroll 12s linear infinite; }
     @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
     input[type="file"] { display: none; }
     audio { display:none; }
-    #resumeOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.7); display:none;
-      align-items:center; justify-content:center; z-index:999; }
-    #resumeOverlay button{ min-width: 240px; height: 56px; font-size: 18px; border-radius: 10px;
-      background:#0fd; color:#000; border:none; }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
-    <label id="folderButton">SELECT MUSIC FOLDER</label>
+    <label id="folderButton">SELECT MUSIC FOLDER / FILES</label>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
     <button id="backButton">PREVIOUS</button>
     <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
   </div>
-  <div id="resumeOverlay"><button id="resumeBtn">RESUME</button></div>
   <audio id="player" preload="metadata" playsinline></audio>
 
-  <!-- Meyda for audio features -->
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
-    // ===== Visualizer =====
-    const canvas=document.getElementById('canvas'); const ctx=canvas.getContext('2d');
-    const size=500; canvas.width=canvas.height=size; const imageData=ctx.createImageData(size,size);
-    let canvasActivated=false; let U=new Float32Array(size*size).fill(1), V=new Float32Array(size*size).fill(0);
-    for(let y=size/2-16;y<size/2+16;y++) for(let x=size/2-16;x<size/2+16;x++) V[y*size+x]=1;
-    const du=.16,dv=.08; let flashFeed=0,flashKill=0; const pink=Array(8).fill(0);
-    const pn=()=>{let t=0;for(let i=0;i<pink.length;i++){if(Math.random()<1/(1<<i))pink[i]=Math.random()*2-1;t+=pink[i];}return t/pink.length;};
-    const lap=(f,x,y)=>f[((y-1+size)%size)*size+x]+f[((y+1)%size)*size+x]+f[y*size+((x-1+size)%size)]+f[y*size+((x+1)%size)]-4*f[y*size+x];
-    function step(){const U2=new Float32Array(U.length),V2=new Float32Array(V.length);const t=performance.now()/1000;
-      const f=.022+pn()*.0015+.0007*Math.sin(t*Math.PI/10)+flashFeed, k=.051+pn()*.0015+.0007*Math.cos(t*Math.PI/10)+flashKill;
-      flashFeed*=.85; flashKill*=.85;
-      for(let i=0;i<U.length;i++){const y=(i/size)|0,x=i%size;const u=U[i],v=V[i];const Lu=lap(U,x,y)*1.2,Lv=lap(V,x,y)*1.2;
-        U2[i]=u+(du*Lu-u*v*v+f*(1-u)); V2[i]=v+(dv*Lv+u*v*v-(f+k)*v);} U=U2; V=V2;}
-    function draw(){const d=imageData.data,k=3,n=x=>Math.max(0,Math.min(1,x)),t=x=>(1-Math.exp(-k*x))/(1-Math.exp(-k));
-      for(let i=0;i<U.length;i++){const c=(Math.min(t(n((U[i]-V[i])*1.0)),.92)*255)|0;const p=i*4;d[p]=d[p+1]=d[p+2]=c;d[p+3]=255;}
-      ctx.putImageData(imageData,0,0);}
-    ;(function loop(){for(let i=0;i<3;i++)step();draw();requestAnimationFrame(loop);})();
-    canvas.addEventListener('click',()=>{flashFeed=.02;flashKill=-.01;});
+    /* ========= Visualizer ========= */
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const size = 500;
+    canvas.width = canvas.height = size;
+    const imageData = ctx.createImageData(size, size);
+    let canvasActivated = false;
 
-    // ===== Player: HTMLAudioElement + exact resume =====
-    const player=document.getElementById('player');
-    let playlist=[], urls=[], current=0;
-    let audioCtx=null, analyser=null, meyda=null;
-    const lcdSpan=document.querySelector('#lcd span');
-    const lcd=t=>{ lcdSpan.textContent=t; };
-    const nowText=()=>playlist.length?`TRACK ${current+1}/${playlist.length}: ${playlist[current].name}`:'NO FILES';
+    let U = new Float32Array(size * size).fill(1);
+    let V = new Float32Array(size * size).fill(0);
+    for (let y = size / 2 - 16; y < size / 2 + 16; y++)
+      for (let x = size / 2 - 16; x < size / 2 + 16; x++)
+        V[y * size + x] = 1;
+
+    const du = 0.16, dv = 0.08;
+    let flashFeed = 0, flashKill = 0;
+    const pinkNoise = Array(8).fill(0);
+
+    function generatePinkNoise() {
+      let total = 0;
+      for (let i = 0; i < pinkNoise.length; i++) {
+        if (Math.random() < 1 / (1 << i)) pinkNoise[i] = Math.random() * 2 - 1;
+        total += pinkNoise[i];
+      }
+      return total / pinkNoise.length;
+    }
+    function lap(f, x, y) {
+      return f[((y - 1 + size) % size) * size + x] + f[((y + 1) % size) * size + x] +
+             f[y * size + ((x - 1 + size) % size)] + f[y * size + ((x + 1) % size)] - 4 * f[y * size + x];
+    }
+    function step() {
+      const U2 = new Float32Array(U.length), V2 = new Float32Array(V.length);
+      const t = performance.now() / 1000;
+      const pf = generatePinkNoise() * 0.0015, pk = generatePinkNoise() * 0.0015;
+      const feedBase = 0.022, killBase = 0.051;
+      const f = feedBase + pf + 0.0007 * Math.sin(t * Math.PI / 10) + flashFeed;
+      const k = killBase + pk + 0.0007 * Math.cos(t * Math.PI / 10) + flashKill;
+      flashFeed *= 0.85; flashKill *= 0.85;
+      for (let i = 0; i < U.length; i++) {
+        const y = Math.floor(i / size), x = i % size;
+        const u = U[i], v = V[i];
+        const Lu = lap(U, x, y) * 1.2;
+        const Lv = lap(V, x, y) * 1.2;
+        U2[i] = u + (du * Lu - u * v * v + f * (1 - u));
+        V2[i] = v + (dv * Lv + u * v * v - (f + k) * v);
+      }
+      U = U2; V = V2;
+    }
+    function draw() {
+      const d = imageData.data;
+      const kTone = 3.0;
+      const norm = x => Math.max(0, Math.min(1, x));
+      const tone = x => (1 - Math.exp(-kTone * x)) / (1 - Math.exp(-kTone));
+      for (let i = 0; i < U.length; i++) {
+        const base = norm((U[i] - V[i]) * 1.0);
+        const t = tone(base);
+        const capped = Math.min(t, 0.92);
+        const c = (capped * 255) | 0;
+        const p = i * 4;
+        d[p] = d[p + 1] = d[p + 2] = c; d[p + 3] = 255;
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+    (function loop(){ for (let i=0;i<3;i++) step(); draw(); requestAnimationFrame(loop); })();
+    canvas.addEventListener('click', () => { flashFeed = 0.02; flashKill = -0.01; });
+
+    /* ========= Audio via <audio> ========= */
+    const player = document.getElementById('player');
+    let audioCtx, mediaSrc, analyser, meydaAnalyzer;
+    function ensureGraph(){
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      mediaSrc = audioCtx.createMediaElementSource(player);
+      analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
+      mediaSrc.connect(analyser); analyser.connect(audioCtx.destination);
+      meydaAnalyzer = Meyda.createMeydaAnalyzer({ audioContext: audioCtx, source: analyser, bufferSize: 512, featureExtractors:['rms','spectralCentroid'], callback:()=>{} });
+      try { meydaAnalyzer.start(); } catch {}
+    }
+
+    let playlist = [], urls = [], current = 0;
+    const lcdSpan = document.querySelector('#lcd span');
+    const lcd = t => (lcdSpan.textContent = t);
+    const nowText = () => playlist.length ? `TRACK ${current+1}/${playlist.length}: ${playlist[current].name}` : 'NO FILES';
 
     function sortNumeric(files){
       return files.sort((a,b)=>{
-        const ra=a.name.match(/\d+/), rb=b.name.match(/\d+/);
-        if(ra&&rb){const na=+ra[0], nb=+rb[0]; if(na!==nb)return na-nb;}
+        const ra=a.name.match(/\\d+/), rb=b.name.match(/\\d+/);
+        if(ra&&rb){ const na=+ra[0], nb=+rb[0]; if(na!==nb) return na-nb; }
         else if(ra&&!rb) return -1; else if(!ra&&rb) return 1;
         return a.name.localeCompare(b.name,'ja',{numeric:true,sensitivity:'base'});
       });
     }
     function revokeAll(){ urls.forEach(u=>URL.revokeObjectURL(u)); urls=[]; }
     async function replacePlaylist(files,label=''){
-      pauseManual(); revokeAll();
-      playlist=sortNumeric(files.filter(f=>(f.type&&f.type.startsWith('audio/'))||/\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name)));
-      urls=playlist.map(f=>URL.createObjectURL(f)); current=0; player.src='';
-      lcd(playlist.length?`LOADED ${playlist.length} files (numeric-first)${label?' — '+label:''}`:'NO FILES');
-      savedTime=0; autoPaused=false;
+      try{ player.pause(); }catch{}
+      revokeAll();
+      playlist = sortNumeric(files.filter(f => (f.type && f.type.startsWith('audio/')) || /\\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name)));
+      urls = playlist.map(f=>URL.createObjectURL(f));
+      current = 0; player.src = '';
+      lcd(playlist.length ? `LOADED ${playlist.length} files${label?' — '+label:''}` : 'NO FILES');
     }
 
-    function ensureGraph(){
-      if(audioCtx) return;
-      audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-      const mediaSrc=audioCtx.createMediaElementSource(player);
-      analyser=audioCtx.createAnalyser(); analyser.fftSize=1024;
-      mediaSrc.connect(analyser); analyser.connect(audioCtx.destination);
-      meyda=Meyda.createMeydaAnalyzer({audioContext:audioCtx, source:analyser, bufferSize:512, featureExtractors:['rms','spectralCentroid'], callback:()=>{}});
-      try{meyda.start();}catch{}
-    }
-
-    async function play(index=current, resume=false){
+    async function play(index=current){
       if(!playlist.length) return;
-      current=Math.max(0,Math.min(index,playlist.length-1));
-      if(player.src!==urls[current]) player.src=urls[current];
-      if(resume && savedTime>0){
-        if(player.readyState<1){
-          await new Promise(r=>{const on=()=>{player.removeEventListener('loadedmetadata',on);r();};player.addEventListener('loadedmetadata',on);});
-        }
-        try{ player.currentTime = savedTime; }catch{}
+      current = Math.max(0, Math.min(index, playlist.length-1));
+      if(player.src !== urls[current]) player.src = urls[current];
+      try {
+        await player.play();
+        ensureGraph(); try{ await audioCtx.resume(); }catch{}
+        lcd(nowText());
+        if (!canvasActivated){ canvas.classList.add('active'); canvasActivated = true; }
+        await requestWakeLock(); // ensure screen stays on while playing
+      } catch(e) {
+        console.warn('play() blocked:', e);
       }
-      try{ await player.play(); ensureGraph(); try{await audioCtx.resume();}catch{} lcd(nowText()); savedTime=0; autoPaused=false;
-        if(!canvasActivated){canvas.classList.add('active');canvasActivated=true;}
-      }catch(e){ showResumeOverlay(); } // needs gesture
     }
     function pauseManual(){ try{ player.pause(); }catch{} lcd(playlist.length?`PAUSED — ${nowText()}`:'PAUSED'); }
 
-    // NEXT / PREV
     player.addEventListener('ended', ()=>{ play((current+1)%playlist.length); });
-    document.getElementById('playButton').addEventListener('click', ()=> play(current, !!savedTime));
+
+    document.getElementById('playButton').addEventListener('click', ()=> play(current));
     document.getElementById('pauseButton').addEventListener('click', pauseManual);
     document.getElementById('skipButton').addEventListener('click', ()=> play((current+1)%playlist.length));
     document.getElementById('backButton').addEventListener('click', ()=> play((current-1+playlist.length)%playlist.length));
 
-    // Folder pick
-    const folderButton=document.getElementById('folderButton');
-    const audioInput=document.getElementById('audioInput');
-    async function* walk(h){ for await(const [name,e] of h.entries()){ if(e.kind==='file') yield await e.getFile(); else if(e.kind==='directory') yield* walk(e);} }
+    /* ========= Folder pickers ========= */
+    const folderButton = document.getElementById('folderButton');
+    const audioInput = document.getElementById('audioInput');
+    async function* walk(h){ for await (const [name,e] of h.entries()){ if(e.kind==='file') yield await e.getFile(); else if(e.kind==='directory') yield* walk(e);} }
     async function loadFromDir(h){ const files=[]; for await(const f of walk(h)) files.push(f); await replacePlaylist(files, h?.name||''); }
     async function pickFolderNative(){ const h=await window.showDirectoryPicker({mode:'read'}); const p=await h.requestPermission({mode:'read'}); if(p!=='granted') throw new DOMException('Permission denied'); await loadFromDir(h); }
-    folderButton.addEventListener('click', async (e)=>{ e.preventDefault(); e.stopPropagation();
-      try{ if('showDirectoryPicker' in window){ await pickFolderNative(); } else { audioInput.click(); } }
-      catch{ audioInput.click(); }
+    folderButton.addEventListener('click', async (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      try { if('showDirectoryPicker' in window){ await pickFolderNative(); } else { audioInput.click(); } }
+      catch { audioInput.click(); }
     });
     audioInput.addEventListener('change', async (e)=>{ await replacePlaylist([...e.target.files||[]]); });
 
-    // ===== Background exact resume =====
-    let autoPaused=false, savedTime=0;
-    const overlay=document.getElementById('resumeOverlay'); const resumeBtn=document.getElementById('resumeBtn');
-    function showResumeOverlay(){ overlay.style.display='flex'; resumeBtn.textContent = savedTime ? `RESUME from ${fmt(savedTime)}` : 'RESUME'; }
-    function hideResumeOverlay(){ overlay.style.display='none'; }
-    function fmt(sec){ const m=Math.floor(sec/60), s=Math.floor(sec%60); return `${m}:${s.toString().padStart(2,'0')}`; }
-
+    /* ========= Wake Lock: keep screen ON ========= */
+    let wakeLock = null, wakeRetryTimer = null;
+    async function requestWakeLock(){
+      try{
+        if(!('wakeLock' in navigator)) return;
+        if(wakeLock) return;
+        wakeLock = await navigator.wakeLock.request('screen');
+        // small badge
+        if(!document.querySelector('#lcd small')) lcdSpan.insertAdjacentHTML('beforeend',' <small>• screen on</small>');
+        wakeLock.addEventListener('release',()=>{
+          wakeLock = null;
+          clearTimeout(wakeRetryTimer);
+          // try to re-acquire shortly after release (some devices release on dim events)
+          wakeRetryTimer = setTimeout(()=>{ requestWakeLock(); }, 500);
+        });
+      }catch(e){
+        // transient errors: retry later
+        clearTimeout(wakeRetryTimer);
+        wakeRetryTimer = setTimeout(()=>{ requestWakeLock(); }, 1000);
+      }
+    }
+    // On visibility return / focus, make sure lock is active & playback continues
     document.addEventListener('visibilitychange', ()=>{
-      if(document.visibilityState==='hidden'){
-        if(!player.paused){ savedTime = player.currentTime||0; autoPaused=true; player.pause(); lcd('PAUSED (background)'); }
-      } else {
-        if(autoPaused){ showResumeOverlay(); }
+      if(document.visibilityState === 'visible'){
+        requestWakeLock();
+        if (!player.paused) { player.play().catch(()=>{}); } // continue if OS paused silently
       }
     });
-    window.addEventListener('pagehide', ()=>{ if(!player.paused){ savedTime = player.currentTime||0; autoPaused=true; player.pause(); lcd('PAUSED (background)'); } });
-    resumeBtn.addEventListener('click', async ()=>{ hideResumeOverlay(); await play(current, true); });
+    window.addEventListener('focus', ()=>{ requestWakeLock(); if(!player.paused){ player.play().catch(()=>{}); } });
 
-    // Tap LCD to resume too
-    document.getElementById('lcd').addEventListener('click', ()=>{ if(autoPaused) showResumeOverlay(); });
+    // acquire once on first user gesture
+    ['click','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{ requestWakeLock(); }, { once:true }));
 
-    // ===== Service Worker registration (relative path!) =====
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=1').catch(err => console.error('SW registration failed', err));
+    // Optional: register SW if present (harmless if missing)
+    if('serviceWorker' in navigator){
+      addEventListener('load', ()=>{
+        navigator.serviceWorker.register('./sw.js').catch(()=>{});
       });
     }
   </script>
