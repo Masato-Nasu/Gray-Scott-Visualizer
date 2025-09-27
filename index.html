@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Gray-Scott Visualizer (Hard Kill Fixed)</title>
+  <title>Gray-Scott Visualizer (Final — Hard Stop, No Abort)</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
@@ -105,11 +105,7 @@
       }
       ctx.putImageData(imageData, 0, 0);
     }
-    function loop() {
-      for (let i = 0; i < 3; i++) step();
-      draw();
-      requestAnimationFrame(loop);
-    }
+    function loop() { for (let i = 0; i < 3; i++) step(); draw(); requestAnimationFrame(loop); }
     loop();
     canvas.addEventListener('click', () => { flashFeed = 0.02; flashKill = -0.01; });
 
@@ -122,7 +118,7 @@
     const lcdTrack = () => playlist.length ? lcd(`TRACK ${currentTrack+1}/${playlist.length}: ${playlist[currentTrack].name}`) : lcd('NO FILES');
     const lcdPaused = () => playlist.length ? lcd(`PAUSED — TRACK ${currentTrack+1}/${playlist.length}: ${playlist[currentTrack].name}`) : lcd('PAUSED');
 
-    function initAudio() {
+    function ensureContext() {
       if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         masterGain = audioContext.createGain();
@@ -136,22 +132,29 @@
       }
     }
 
-    async function hardKillPlayback(opts={ bumpTokens:true }) {
-      const { bumpTokens } = opts;
-      if (bumpTokens) { playSessionId++; stopToken++; loadToken++; }
-      try { if (source) { try { source.onended = null; } catch {}; try { source.stop(0); } catch {}; try { source.disconnect(); } catch {}; } } catch {}
-      source = null;
-      try { if (meyda) { try { meyda.stop(); } catch {}; } } catch {}
-      meyda = null;
-      try { if (masterGain) { masterGain.disconnect(); } } catch {}
-      masterGain = null;
+    async function softKillPlayback() {
+      // Stop current source and detach nodes; keep AudioContext alive
+      stopToken++;
+      if (source) {
+        try { source.onended = null; } catch {}
+        try { source.stop(0); } catch {}
+        try { source.disconnect(); } catch {}
+        source = null;
+      }
+      if (meyda) { try { meyda.stop(); } catch {} meyda = null; }
+      if (masterGain) { try { masterGain.disconnect(); } catch {} }
       if (audioContext) {
         try { await audioContext.suspend(); } catch {}
-        try { await audioContext.close(); } catch {}
       }
-      audioContext = null;
+      if (audioContext) { // rebuild masterGain chain after suspend
+        try {
+          masterGain = audioContext.createGain();
+          masterGain.gain.value = 1.0;
+          masterGain.connect(audioContext.destination);
+        } catch {}
+      }
       playing = false; audioPaused = true;
-      await new Promise(r => setTimeout(r, 16));
+      await new Promise(r => setTimeout(r, 12));
     }
 
     document.body.addEventListener('touchend', () => {
@@ -163,6 +166,7 @@
         const reader = new FileReader();
         reader.onload = evt => {
           if (myLoad !== loadToken) return reject(new DOMException('aborted','AbortError'));
+          ensureContext();
           audioContext.decodeAudioData(evt.target.result).then(b => {
             if (myLoad !== loadToken) reject(new DOMException('aborted','AbortError'));
             else resolve(b);
@@ -187,9 +191,8 @@
       const myStop = stopToken;
       const myLoad = loadToken;
       try {
-        // IMPORTANT: kill without bumping tokens to avoid invalidating mySession
-        await hardKillPlayback({ bumpTokens:false });
-        initAudio();
+        await softKillPlayback();  // do not bump tokens; keep context alive
+        ensureContext();
         const file = playlist[index];
         const buffer = await loadAudioBuffer(file, myLoad);
         if (mySession !== playSessionId || myStop !== stopToken || myLoad !== loadToken) return;
@@ -225,20 +228,20 @@
       requestWakeLock();
       if (!playlist.length) return;
       if (!source) playTrack(currentTrack);
-      else { audioPaused=false; initAudio(); audioContext?.resume().then(lcdTrack).catch(()=>{}); }
+      else { audioPaused=false; ensureContext(); audioContext?.resume().then(lcdTrack).catch(()=>{}); }
     });
     pauseButton.addEventListener('click', async () => {
       audioPaused = true; lcdPaused();
-      await hardKillPlayback({ bumpTokens:true });
+      await softKillPlayback();
     });
     skipButton.addEventListener('click', async () => {
       if (!playlist.length) return;
-      await hardKillPlayback({ bumpTokens:false });
+      await softKillPlayback();
       await playTrack(nextIndex(currentTrack,+1));
     });
     backButton.addEventListener('click', async () => {
       if (!playlist.length) return;
-      await hardKillPlayback({ bumpTokens:false });
+      await softKillPlayback();
       await playTrack(nextIndex(currentTrack,-1));
     });
 
@@ -254,8 +257,9 @@
     let dirHandle;
 
     async function replacePlaylistWith(files,label='') {
-      // HARD KILL current playback and invalidate pending work
-      await hardKillPlayback({ bumpTokens:true });
+      // Invalidate pending async (decode/onended), and hard-stop current source
+      loadToken++; playSessionId++; // new session expected after replace
+      await softKillPlayback();
       const audios = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
       audios.sort(numericFileSort);
       playlist = audios; currentTrack = 0; audioPaused = true; playing = false;
@@ -306,7 +310,7 @@
     /* ========= Background policy ========= */
     function autoPause(reason){
       audioPaused = true;
-      hardKillPlayback({ bumpTokens:true });
+      softKillPlayback();
       lcd(reason==='background' ? 'PAUSED (background)' : 'PAUSED');
     }
     document.addEventListener('visibilitychange',()=>{
@@ -342,10 +346,10 @@
     if ('mediaSession' in navigator){
       navigator.mediaSession.setActionHandler('play',()=>{
         if (!playlist.length) return;
-        audioPaused=false; initAudio(); audioContext?.resume().then(lcdTrack).catch(()=>{});
+        audioPaused=false; ensureContext(); audioContext?.resume().then(lcdTrack).catch(()=>{});
       });
       navigator.mediaSession.setActionHandler('pause',()=>{
-        audioPaused=true; hardKillPlayback({ bumpTokens:true }).then(lcdPaused);
+        audioPaused=true; softKillPlayback().then(lcdPaused);
       });
       navigator.mediaSession.setActionHandler('previoustrack',()=>backButton.click());
       navigator.mediaSession.setActionHandler('nexttrack',()=>skipButton.click());
@@ -355,7 +359,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=20').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=21').catch(console.error);
       });
     }
   </script>
