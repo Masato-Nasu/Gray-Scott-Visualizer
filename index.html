@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Gray-Scott Visualizer (Keep Screen On)</title>
+  <title>Gray-Scott Visualizer (Hard Kill on Switch)</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
@@ -114,9 +114,9 @@
     canvas.addEventListener('click', () => { flashFeed = 0.02; flashKill = -0.01; });
 
     /* ========= Audio ========= */
-    let audioContext, source, meyda;
+    let audioContext, source, meyda, masterGain;
     let playlist = [], currentTrack = 0, playing = false;
-    let playSessionId = 0, stopToken = 0;
+    let playSessionId = 0, stopToken = 0, loadToken = 0;
     const lcdSpan = document.querySelector('#lcd span');
     const lcd = t => (lcdSpan.textContent = t);
     const lcdTrack = () => playlist.length ? lcd(`TRACK ${currentTrack+1}/${playlist.length}: ${playlist[currentTrack].name}`) : lcd('NO FILES');
@@ -125,36 +125,49 @@
     function initAudio() {
       if (!audioContext) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        masterGain = audioContext.createGain();
+        masterGain.gain.value = 1.0;
+        masterGain.connect(audioContext.destination);
         audioContext.onstatechange = () => {
-          // 通話・イヤホン抜け等で suspend された場合は停止扱い
           if (audioContext.state === 'suspended' && playing && !audioPaused) {
             audioPaused = true; lcdPaused();
           }
         };
       }
     }
+
+    async function hardKillPlayback() {
+      // Invalidate everything
+      playSessionId++; stopToken++; loadToken++;
+      try { if (source) { try { source.onended = null; } catch {}; try { source.stop(0); } catch {}; try { source.disconnect(); } catch {}; } } catch {}
+      source = null;
+      try { if (meyda) { try { meyda.stop(); } catch {}; } } catch {}
+      meyda = null;
+      try { if (masterGain) { masterGain.disconnect(); } } catch {}
+      masterGain = null;
+      if (audioContext) {
+        try { await audioContext.suspend(); } catch {}
+        try { await audioContext.close(); } catch {}
+      }
+      audioContext = null;
+      playing = false; audioPaused = true;
+      await new Promise(r => setTimeout(r, 20)); // give the platform a tick
+    }
+
     document.body.addEventListener('touchend', () => {
       if (audioContext?.state === 'suspended' && !audioPaused) audioContext.resume();
     }, { once: true });
 
-    async function stopCurrentTrack(forceSuspend=false) {
-      stopToken++;
-      if (source) {
-        try { source.onended = null; } catch {}
-        try { source.stop(0); } catch {}
-        try { source.disconnect(); } catch {}
-        source = null;
-      }
-      playing = false;
-      if (forceSuspend && audioContext) { try { await audioContext.suspend(); } catch {} }
-      await new Promise(r => setTimeout(r, 20));
-    }
-
-    async function loadAudioBuffer(file) {
+    async function loadAudioBuffer(file, myLoad) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = e => {
-          audioContext.decodeAudioData(e.target.result).then(resolve).catch(reject);
+        reader.onload = evt => {
+          // Ignore if invalidated mid-flight
+          if (myLoad !== loadToken) return reject(new DOMException('aborted','AbortError'));
+          audioContext.decodeAudioData(evt.target.result).then(b => {
+            if (myLoad !== loadToken) reject(new DOMException('aborted','AbortError'));
+            else resolve(b);
+          }).catch(reject);
         };
         reader.readAsArrayBuffer(file);
       });
@@ -173,28 +186,29 @@
       isSwitching = true;
       const mySession = ++playSessionId;
       const myStop = stopToken;
+      const myLoad = loadToken;
       try {
-        await stopCurrentTrack();
+        await hardKillPlayback();   // ensure nothing is playing (also resets context)
         initAudio();
         const file = playlist[index];
-        const buffer = await loadAudioBuffer(file);
-        if (mySession !== playSessionId || myStop !== stopToken) return;
+        const buffer = await loadAudioBuffer(file, myLoad);
+        if (mySession !== playSessionId || myStop !== stopToken || myLoad !== loadToken) return;
 
         source = audioContext.createBufferSource();
         source.buffer = buffer;
         const analyser = audioContext.createAnalyser(); analyser.fftSize = 1024;
-        source.connect(analyser); analyser.connect(audioContext.destination);
+        source.connect(analyser); analyser.connect(masterGain || audioContext.destination);
 
         if (!meyda) {
           meyda = Meyda.createMeydaAnalyzer({
             audioContext, source: analyser, bufferSize: 512,
             featureExtractors: ['rms','spectralCentroid'],
             callback: () => {}
-          }); meyda.start();
+          }); try { meyda.start(); } catch {}
         } else { meyda.setSource(analyser); }
 
         source.onended = () => {
-          if (mySession !== playSessionId || myStop !== stopToken) return;
+          if (mySession !== playSessionId || myStop !== stopToken || myLoad !== loadToken) return;
           if (!audioPaused) setTimeout(() => playTrack(nextIndex(currentTrack,+1)), 0);
         };
 
@@ -208,28 +222,27 @@
 
     /* controls */
     playButton.addEventListener('click', () => {
-      requestWakeLock();  // ユーザー操作で確実に獲得を試みる
+      requestWakeLock();
       if (!playlist.length) return;
       if (!source) playTrack(currentTrack);
       else { audioPaused=false; audioContext?.resume().then(lcdTrack).catch(()=>{}); }
     });
-    pauseButton.addEventListener('click', () => {
-      if (!audioContext) return;
-      audioPaused = true; try { audioContext.suspend(); } catch {}
-      lcdPaused();
+    pauseButton.addEventListener('click', async () => {
+      audioPaused = true; lcdPaused();
+      await hardKillPlayback();
     });
     skipButton.addEventListener('click', async () => {
       if (!playlist.length) return;
-      await stopCurrentTrack(); if (audioContext) await audioContext.resume();
+      await hardKillPlayback();
       await playTrack(nextIndex(currentTrack,+1));
     });
     backButton.addEventListener('click', async () => {
       if (!playlist.length) return;
-      await stopCurrentTrack(); if (audioContext) await audioContext.resume();
+      await hardKillPlayback();
       await playTrack(nextIndex(currentTrack,-1));
     });
 
-    /* ========= Picker (robust) ========= */
+    /* ========= Picker ========= */
     const folderButton = document.getElementById('folderButton');
     const audioInput  = document.getElementById('audioInput');
 
@@ -241,8 +254,12 @@
     let dirHandle;
 
     async function replacePlaylistWith(files,label='') {
-      playSessionId++; stopToken++;
-      await stopCurrentTrack(true); // 完全停止＋サスペンド
+      // HARD KILL any current playback (prevents resurrection)
+      await hardKillPlayback();
+
+      // Overwrite tokens so old async work becomes invalid
+      playSessionId++; stopToken++; loadToken++;
+
       const audios = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
       audios.sort(numericFileSort);
       playlist = audios; currentTrack = 0; audioPaused = true; playing = false;
@@ -267,7 +284,7 @@
 
     folderButton.addEventListener('click', async (e)=>{
       e.preventDefault(); e.stopPropagation();
-      requestWakeLock();  // フォルダ選択でも取得を試みる
+      requestWakeLock();
       try{
         if ('showDirectoryPicker' in window) { await pickFolderNative(); }
         else { audioInput.click(); }
@@ -293,7 +310,7 @@
     /* ========= Background policy ========= */
     function autoPause(reason){
       audioPaused = true;
-      try{ if (audioContext?.state==='running') audioContext.suspend(); }catch{}
+      hardKillPlayback(); // make sure everything is stopped when going background
       lcd(reason==='background' ? 'PAUSED (background)' : 'PAUSED');
     }
     document.addEventListener('visibilitychange',()=>{
@@ -302,42 +319,37 @@
     });
     window.addEventListener('pagehide',()=>autoPause('background'));
 
-    /* ========= Wake Lock: keep screen ON (robust) ========= */
-    let wakeLock = null;
-    let wakeRetryTimer = null;
+    /* ========= Wake Lock ========= */
+    let wakeLock = null, wakeRetryTimer = null;
     async function requestWakeLock() {
       try {
         if (!('wakeLock' in navigator)) return;
         if (wakeLock) return;
         wakeLock = await navigator.wakeLock.request('screen');
-        lcdSpan.insertAdjacentHTML('beforeend','<small>• screen on</small>');
+        if (!document.querySelector('#lcd small')) lcdSpan.insertAdjacentHTML('beforeend','<small>• screen on</small>');
         wakeLock.addEventListener('release', () => {
           wakeLock = null;
-          // 自動で再取得を試みる（ユーザー操作後のみ有効）
           clearTimeout(wakeRetryTimer);
           wakeRetryTimer = setTimeout(() => { requestWakeLock(); }, 500);
         });
       } catch (e) {
-        // 一時的な失敗は少し待って再試行
         clearTimeout(wakeRetryTimer);
         wakeRetryTimer = setTimeout(() => { requestWakeLock(); }, 1000);
       }
     }
-    // 画面が見えるたびに再取得を試みる
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') requestWakeLock();
     });
-    // 最初のユーザー操作で確実に権限を得る
     ['click','touchstart'].forEach(ev => document.addEventListener(ev, requestWakeLock, { once: true }));
 
     /* ========= MediaSession ========= */
     if ('mediaSession' in navigator){
       navigator.mediaSession.setActionHandler('play',()=>{
         if (!playlist.length) return;
-        audioPaused=false; audioContext?.resume().then(lcdTrack).catch(()=>{});
+        audioPaused=false; initAudio(); audioContext?.resume().then(lcdTrack).catch(()=>{});
       });
       navigator.mediaSession.setActionHandler('pause',()=>{
-        audioPaused=true; try{audioContext?.suspend();}catch{}; lcdPaused();
+        audioPaused=true; hardKillPlayback().then(lcdPaused);
       });
       navigator.mediaSession.setActionHandler('previoustrack',()=>backButton.click());
       navigator.mediaSession.setActionHandler('nexttrack',()=>skipButton.click());
@@ -347,7 +359,7 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?ver=18').catch(console.error);
+        navigator.serviceWorker.register('./sw.js?ver=19').catch(console.error);
       });
     }
   </script>
