@@ -59,13 +59,6 @@ https://masato-nasu.github.io/Gray-Scott-Visualizer/
 
 ---
 
-## 公開方法
-1. このリポジトリを作成し、`index.html` と `screenshot.png` をアップロード  
-2. GitHub → **Settings → Pages** から `main` ブランチを root で公開  
-3. 数分後に `https://ユーザー名.github.io/リポジトリ名/` でアクセス可能  
-
----
-
 ## ライセンス
 MIT License
 
@@ -127,13 +120,6 @@ https://masato-nasu.github.io/Gray-Scott-Visualizer/
 ## Tech Stack
 - HTML / CSS / JavaScript  
 - [Meyda](https://meyda.js.org/) (Audio feature extraction library)  
-
----
-
-## Deployment
-1. Upload `index.html` and `screenshot.png` to your repository  
-2. GitHub → **Settings → Pages** → set to `main` branch / root  
-3. Access at: `https://username.github.io/repository/`  
 
 ---
 
